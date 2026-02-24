@@ -181,12 +181,16 @@ int main() {
             [&id](const Song& song) { return song.id == id; });
             
         if (it == songs.end()) {
+            std::cerr << "Song not found: " << id << std::endl;
             res.status = 404;
             return;
         }
+        
+        std::cout << "Streaming song: " << it->title << " (ID: " << id << ")" << std::endl;
             
         std::ifstream file(it->filepath, std::ios::binary);
         if (!file) {
+            std::cerr << "Cannot open file: " << it->filepath << std::endl;
             res.status = 404;
             return;
         }
@@ -195,6 +199,8 @@ int main() {
         file.seekg(0, std::ios::end);
         size_t fileSize = file.tellg();
         file.seekg(0, std::ios::beg);
+        
+        std::cout << "  File size: " << fileSize << " bytes" << std::endl;
 
         // Set common headers for better streaming
         res.set_header("Accept-Ranges", "bytes");
@@ -207,16 +213,18 @@ int main() {
             std::string range = req.get_header_value("Range");
             size_t start = 0, end = fileSize - 1;
             
+            std::cout << "  Range request: " << range << std::endl;
+            
             // Parse range header - supports "bytes=start-end" and "bytes=start-"
             int parsed = sscanf(range.c_str(), "bytes=%zu-%zu", &start, &end);
             
             if (parsed == 1) {
                 // Only start specified (bytes=start-)
-                // Send rest of file or 1MB chunk (whichever is smaller)
-                size_t chunkSize = std::min(static_cast<size_t>(1024 * 1024), fileSize - start);
-                end = start + chunkSize - 1;
+                // This means "from start to end of file"
+                // Let the browser decide how much to request, don't artificially limit
+                end = fileSize - 1;
             }
-            // If parsed == 2, both start and end are set
+            // If parsed == 2, both start and end are set by browser
             
             // Validate and clamp values
             if (start >= fileSize) start = 0;
@@ -224,10 +232,19 @@ int main() {
             if (start > end) start = end;
             
             size_t contentLength = end - start + 1;
+            
+            std::cout << "  Serving bytes " << start << "-" << end << "/" << fileSize 
+                      << " (" << contentLength << " bytes)" << std::endl;
 
             file.seekg(start);
             std::vector<char> buffer(contentLength);
             file.read(buffer.data(), contentLength);
+            
+            // Check if read was successful
+            if (!file || file.gcount() != static_cast<std::streamsize>(contentLength)) {
+                std::cerr << "  ERROR: Failed to read " << contentLength << " bytes, got " 
+                          << file.gcount() << " bytes" << std::endl;
+            }
 
             res.set_header("Content-Range", "bytes " + std::to_string(start) + "-" + 
                           std::to_string(end) + "/" + std::to_string(fileSize));
@@ -235,6 +252,8 @@ int main() {
             res.status = 206;  // Partial Content
             res.body.assign(buffer.data(), contentLength);
         } else {
+            std::cout << "  Serving entire file" << std::endl;
+            
             // Send entire file with proper headers
             std::vector<char> buffer(fileSize);
             file.read(buffer.data(), fileSize);
