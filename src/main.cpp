@@ -228,6 +228,19 @@ int main() {
         }
     });
 
+    // Serve the index.html file at root
+    svr.Get("/", [](const httplib::Request&, httplib::Response& res) {
+        std::ifstream file("index.html");
+        if (!file) {
+            res.status = 404;
+            res.set_content("index.html not found", "text/plain");
+            return;
+        }
+        std::string content((std::istreambuf_iterator<char>(file)),
+                           std::istreambuf_iterator<char>());
+        res.set_content(content, "text/html");
+    });
+
     std::cout << "Server starting on port 3000..." << std::endl;
     svr.listen("0.0.0.0", 3000);
     
