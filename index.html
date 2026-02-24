@@ -62,10 +62,12 @@
             <div id="now-playing" class="text-xl font-medium text-gray-900 mb-6">
                 No song playing
             </div>
+            <div id="buffer-status" class="text-sm text-gray-500 mb-2">Ready</div>
             <div class="progress-bar-container relative w-full h-3 rounded-full mb-8">
+                <div id="buffer-bar" class="absolute h-full rounded-full bg-gray-200" style="width: 0%"></div>
                 <div id="progress-bar" class="absolute h-full rounded-full" style="width: 0%"></div>
             </div>
-            <audio id="audio-player" class="hidden"></audio>
+            <audio id="audio-player" class="hidden" preload="auto"></audio>
             <div class="flex justify-center space-x-6">
                 <button onclick="previousSong()" class="p-3 rounded-full hover:bg-gray-50 transition-colors">
                     <svg class="w-8 h-8 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -134,13 +136,47 @@
         const API_BASE_URL = window.location.origin;
         console.log('API Base URL:', API_BASE_URL);
         
+        // Progress bar update
         audioPlayer.addEventListener('timeupdate', () => {
             const progress = (audioPlayer.currentTime / audioPlayer.duration) * 100;
             document.getElementById('progress-bar').style.width = `${progress}%`;
         });
 
+        // Buffer progress indicator
+        audioPlayer.addEventListener('progress', () => {
+            if (audioPlayer.buffered.length > 0) {
+                const buffered = audioPlayer.buffered.end(audioPlayer.buffered.length - 1);
+                const duration = audioPlayer.duration;
+                const bufferProgress = (buffered / duration) * 100;
+                document.getElementById('buffer-bar').style.width = `${bufferProgress}%`;
+            }
+        });
+
+        // Show buffering status
+        audioPlayer.addEventListener('waiting', () => {
+            document.getElementById('buffer-status').textContent = 'Buffering...';
+        });
+
+        audioPlayer.addEventListener('canplay', () => {
+            document.getElementById('buffer-status').textContent = 'Ready';
+        });
+
+        audioPlayer.addEventListener('playing', () => {
+            document.getElementById('buffer-status').textContent = 'Playing';
+        });
+
+        audioPlayer.addEventListener('stalled', () => {
+            document.getElementById('buffer-status').textContent = 'Connection slow...';
+        });
+
         audioPlayer.addEventListener('ended', () => {
             nextSong();
+        });
+
+        // Handle network errors
+        audioPlayer.addEventListener('error', (e) => {
+            console.error('Audio error:', e);
+            document.getElementById('buffer-status').textContent = 'Error loading audio';
         });
 
         function playSong(id, title, artist) {
@@ -150,8 +186,21 @@
             }
             currentSong = { id, title, artist };
             document.getElementById('now-playing').textContent = `${title} - ${artist}`;
+            document.getElementById('buffer-status').textContent = 'Loading...';
+            
+            // Set audio source and preload
             audioPlayer.src = `${API_BASE_URL}/api/songs/${id}/play`;
-            audioPlayer.play();
+            audioPlayer.load();  // Force load to start buffering
+            
+            // Play when ready
+            const playPromise = audioPlayer.play();
+            if (playPromise !== undefined) {
+                playPromise.catch(error => {
+                    console.error('Play error:', error);
+                    document.getElementById('buffer-status').textContent = 'Click play to start';
+                });
+            }
+            
             updateUI();
         }
 

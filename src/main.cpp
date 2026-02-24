@@ -174,7 +174,7 @@ int main() {
         res.set_content(response.dump(), "application/json");
     });
 
-    // Play song (streaming)
+    // Play song (streaming with improved buffering)
     svr.Get(R"(/api/songs/(\d+)/play)", [](const httplib::Request& req, httplib::Response& res) {
         std::string id = req.matches[1].str();
         auto it = std::find_if(songs.begin(), songs.end(),
@@ -196,14 +196,25 @@ int main() {
         size_t fileSize = file.tellg();
         file.seekg(0, std::ios::beg);
 
-        // Handle range request if present
+        // Set common headers for better streaming
+        res.set_header("Accept-Ranges", "bytes");
+        res.set_header("Content-Type", "audio/mpeg");
+        res.set_header("Cache-Control", "public, max-age=3600");
+        res.set_header("Connection", "keep-alive");
+
+        // Handle range request if present (for seeking and better buffering)
         if (req.has_header("Range")) {
             std::string range = req.get_header_value("Range");
             size_t start = 0, end = fileSize - 1;
             
-            sscanf(range.c_str(), "bytes=%zu-%zu", &start, &end);
+            // Parse range header (handles "bytes=start-" and "bytes=start-end")
+            if (sscanf(range.c_str(), "bytes=%zu-", &start) >= 1) {
+                // If end is not specified, send rest of file or 1MB chunk (whichever is smaller)
+                size_t chunkSize = std::min(static_cast<size_t>(1024 * 1024), fileSize - start);
+                end = start + chunkSize - 1;
+                if (end >= fileSize) end = fileSize - 1;
+            }
             
-            if (end >= fileSize) end = fileSize - 1;
             size_t contentLength = end - start + 1;
 
             file.seekg(start);
@@ -212,18 +223,15 @@ int main() {
 
             res.set_header("Content-Range", "bytes " + std::to_string(start) + "-" + 
                           std::to_string(end) + "/" + std::to_string(fileSize));
-            res.set_header("Accept-Ranges", "bytes");
             res.set_header("Content-Length", std::to_string(contentLength));
-            res.set_header("Content-Type", "audio/mpeg");
-            res.status = 206;
+            res.status = 206;  // Partial Content
             res.body.assign(buffer.data(), contentLength);
         } else {
-            // Send entire file
+            // Send entire file with proper headers
             std::vector<char> buffer(fileSize);
             file.read(buffer.data(), fileSize);
             
             res.set_header("Content-Length", std::to_string(fileSize));
-            res.set_header("Content-Type", "audio/mpeg");
             res.body.assign(buffer.data(), fileSize);
         }
     });
