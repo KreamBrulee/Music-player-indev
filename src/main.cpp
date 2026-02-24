@@ -207,13 +207,21 @@ int main() {
             std::string range = req.get_header_value("Range");
             size_t start = 0, end = fileSize - 1;
             
-            // Parse range header (handles "bytes=start-" and "bytes=start-end")
-            if (sscanf(range.c_str(), "bytes=%zu-", &start) >= 1) {
-                // If end is not specified, send rest of file or 1MB chunk (whichever is smaller)
+            // Parse range header - supports "bytes=start-end" and "bytes=start-"
+            int parsed = sscanf(range.c_str(), "bytes=%zu-%zu", &start, &end);
+            
+            if (parsed == 1) {
+                // Only start specified (bytes=start-)
+                // Send rest of file or 1MB chunk (whichever is smaller)
                 size_t chunkSize = std::min(static_cast<size_t>(1024 * 1024), fileSize - start);
                 end = start + chunkSize - 1;
-                if (end >= fileSize) end = fileSize - 1;
             }
+            // If parsed == 2, both start and end are set
+            
+            // Validate and clamp values
+            if (start >= fileSize) start = 0;
+            if (end >= fileSize) end = fileSize - 1;
+            if (start > end) start = end;
             
             size_t contentLength = end - start + 1;
 

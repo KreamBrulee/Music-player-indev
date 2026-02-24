@@ -138,17 +138,25 @@
         
         // Progress bar update
         audioPlayer.addEventListener('timeupdate', () => {
-            const progress = (audioPlayer.currentTime / audioPlayer.duration) * 100;
-            document.getElementById('progress-bar').style.width = `${progress}%`;
+            if (audioPlayer.duration && isFinite(audioPlayer.duration)) {
+                const progress = (audioPlayer.currentTime / audioPlayer.duration) * 100;
+                document.getElementById('progress-bar').style.width = `${progress}%`;
+            }
         });
 
         // Buffer progress indicator
         audioPlayer.addEventListener('progress', () => {
-            if (audioPlayer.buffered.length > 0) {
-                const buffered = audioPlayer.buffered.end(audioPlayer.buffered.length - 1);
-                const duration = audioPlayer.duration;
-                const bufferProgress = (buffered / duration) * 100;
-                document.getElementById('buffer-bar').style.width = `${bufferProgress}%`;
+            if (audioPlayer.buffered.length > 0 && audioPlayer.duration && isFinite(audioPlayer.duration)) {
+                try {
+                    const buffered = audioPlayer.buffered.end(audioPlayer.buffered.length - 1);
+                    const duration = audioPlayer.duration;
+                    const bufferProgress = (buffered / duration) * 100;
+                    if (isFinite(bufferProgress) && bufferProgress >= 0 && bufferProgress <= 100) {
+                        document.getElementById('buffer-bar').style.width = `${bufferProgress}%`;
+                    }
+                } catch (e) {
+                    // Ignore buffered range errors
+                }
             }
         });
 
@@ -170,6 +178,7 @@
         });
 
         audioPlayer.addEventListener('ended', () => {
+            console.log('Song ended naturally');
             nextSong();
         });
 
@@ -179,7 +188,30 @@
             document.getElementById('buffer-status').textContent = 'Error loading audio';
         });
 
+        // Debug: detect unexpected time jumps
+        let lastTime = 0;
+        audioPlayer.addEventListener('timeupdate', () => {
+            if (audioPlayer.duration && isFinite(audioPlayer.duration)) {
+                const currentTime = audioPlayer.currentTime;
+                const timeDiff = Math.abs(currentTime - lastTime);
+                
+                // If time jumped more than 2 seconds (not counting seeks near end)
+                if (timeDiff > 2 && currentTime < audioPlayer.duration - 5) {
+                    console.warn('Unexpected time jump detected!', {
+                        from: lastTime,
+                        to: currentTime,
+                        diff: timeDiff,
+                        duration: audioPlayer.duration
+                    });
+                }
+                
+                lastTime = currentTime;
+            }
+        });
+
         function playSong(id, title, artist) {
+            console.log('Playing song:', id, title, artist);
+            
             if (currentSong) {
                 previouslyPlayed.unshift(currentSong);
                 if (previouslyPlayed.length > 5) previouslyPlayed.pop();
@@ -188,6 +220,14 @@
             document.getElementById('now-playing').textContent = `${title} - ${artist}`;
             document.getElementById('buffer-status').textContent = 'Loading...';
             
+            // Reset progress bars
+            document.getElementById('progress-bar').style.width = '0%';
+            document.getElementById('buffer-bar').style.width = '0%';
+            
+            // Stop current playback
+            audioPlayer.pause();
+            audioPlayer.currentTime = 0;
+            
             // Set audio source and preload
             audioPlayer.src = `${API_BASE_URL}/api/songs/${id}/play`;
             audioPlayer.load();  // Force load to start buffering
@@ -195,10 +235,14 @@
             // Play when ready
             const playPromise = audioPlayer.play();
             if (playPromise !== undefined) {
-                playPromise.catch(error => {
-                    console.error('Play error:', error);
-                    document.getElementById('buffer-status').textContent = 'Click play to start';
-                });
+                playPromise
+                    .then(() => {
+                        console.log('Playback started successfully');
+                    })
+                    .catch(error => {
+                        console.error('Play error:', error);
+                        document.getElementById('buffer-status').textContent = 'Click play to start';
+                    });
             }
             
             updateUI();
