@@ -1,0 +1,9 @@
+[requires]
+crow/1.0+
+
+[generators]
+CMakeDeps
+CMakeToolchain
+
+[layout]
+cmake_layout

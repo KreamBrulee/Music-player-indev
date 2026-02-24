@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Music Player</title>
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f8fafc;
+        }
+        .gradient-border {
+            position: relative;
+            border-radius: 0.5rem;
+        }
+        .gradient-border::after {
+            content: '';
+            position: absolute;
+            inset: -1px;
+            background: linear-gradient(to right, #635bff, #8b5cf6);
+            border-radius: 0.6rem;
+            z-index: -1;
+            opacity: 0;
+            transition: opacity 0.2s ease;
+        }
+        .gradient-border:hover::after {
+            opacity: 1;
+        }
+        .song-item {
+            transition: all 0.2s ease;
+        }
+        .song-item:hover {
+            transform: translateY(-1px);
+        }
+        .play-button {
+            transition: all 0.15s ease;
+        }
+        .play-button:hover {
+            transform: translateY(-1px);
+        }
+        .progress-bar-container {
+            background: linear-gradient(90deg, rgba(99,91,255,0.1) 0%, rgba(139,92,246,0.1) 100%);
+        }
+        #progress-bar {
+            background: linear-gradient(90deg, #635bff 0%, #8b5cf6 100%);
+            transition: width 0.1s linear;
+        }
+    </style>
+</head>
+<body class="min-h-screen p-8">
+    <div class="max-w-7xl mx-auto">
+        <header class="mb-12">
+            <h1 class="text-4xl font-semibold text-gray-900 tracking-tight">Music Player</h1>
+            <p class="mt-2 text-lg text-gray-600">Your personal music collection</p>
+        </header>
+
+        <!-- Player Controls -->
+        <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-8 mb-12">
+            <div id="now-playing" class="text-xl font-medium text-gray-900 mb-6">
+                No song playing
+            </div>
+            <div class="progress-bar-container relative w-full h-3 rounded-full mb-8">
+                <div id="progress-bar" class="absolute h-full rounded-full" style="width: 0%"></div>
+            </div>
+            <audio id="audio-player" class="hidden"></audio>
+            <div class="flex justify-center space-x-6">
+                <button onclick="previousSong()" class="p-3 rounded-full hover:bg-gray-50 transition-colors">
+                    <svg class="w-8 h-8 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 19l-7-7 7-7"/>
+                    </svg>
+                </button>
+                <button id="play-pause" onclick="togglePlay()" class="p-3 rounded-full hover:bg-gray-50 transition-colors">
+                    <svg class="w-8 h-8 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                    </svg>
+                </button>
+                <button onclick="nextSong()" class="p-3 rounded-full hover:bg-gray-50 transition-colors">
+                    <svg class="w-8 h-8 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 5l7 7-7 7"/>
+                    </svg>
+                </button>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-3 gap-8 mb-12">
+            <!-- Previously Played -->
+            <div>
+                <h2 class="text-lg font-medium text-gray-900 mb-4">Previously Played</h2>
+                <div id="previously-played" class="space-y-3">
+                    <!-- Previously played songs will be inserted here -->
+                </div>
+            </div>
+
+            <!-- Active Playlist -->
+            <div>
+                <h2 class="text-lg font-medium text-gray-900 mb-4">Active Playlist</h2>
+                <div id="active-playlist" class="space-y-3">
+                    <!-- Active playlist songs will be inserted here -->
+                </div>
+            </div>
+
+            <!-- Next in List -->
+            <div>
+                <h2 class="text-lg font-medium text-gray-900 mb-4">Next in List</h2>
+                <div id="next-in-list" class="space-y-3">
+                    <!-- Next songs will be inserted here -->
+                </div>
+            </div>
+        </div>
+
+        <!-- All Songs -->
+        <section>
+            <h2 class="text-lg font-medium text-gray-900 mb-6">All Songs</h2>
+            <div id="song-list" class="space-y-4"
+                 hx-get="http://localhost:3000/api/songs"
+                 hx-trigger="load"
+                 hx-swap="innerHTML">
+            </div>
+        </section>
+    </div>
+
+    <script>
+        let currentSong = null;
+        let previouslyPlayed = [];
+        let activePlaylist = [];
+        let nextInList = [];
+        const audioPlayer = document.getElementById('audio-player');
+        const API_BASE_URL = 'http://localhost:3000';
+        
+        audioPlayer.addEventListener('timeupdate', () => {
+            const progress = (audioPlayer.currentTime / audioPlayer.duration) * 100;
+            document.getElementById('progress-bar').style.width = `${progress}%`;
+        });
+
+        audioPlayer.addEventListener('ended', () => {
+            nextSong();
+        });
+
+        function playSong(id, title, artist) {
+            if (currentSong) {
+                previouslyPlayed.unshift(currentSong);
+                if (previouslyPlayed.length > 5) previouslyPlayed.pop();
+            }
+            currentSong = { id, title, artist };
+            document.getElementById('now-playing').textContent = `${title} - ${artist}`;
+            audioPlayer.src = `${API_BASE_URL}/api/songs/${id}/play`;
+            audioPlayer.play();
+            updateUI();
+        }
+
+        function togglePlay() {
+            if (audioPlayer.paused) {
+                audioPlayer.play();
+            } else {
+                audioPlayer.pause();
+            }
+        }
+
+        function previousSong() {
+            if (previouslyPlayed.length > 0) {
+                const prevSong = previouslyPlayed.shift();
+                nextInList.unshift(currentSong);
+                playSong(prevSong.id, prevSong.title, prevSong.artist);
+            }
+        }
+
+        function nextSong() {
+            if (nextInList.length > 0) {
+                const nextSong = nextInList.shift();
+                playSong(nextSong.id, nextSong.title, nextSong.artist);
+            } else if (activePlaylist.length > 0) {
+                const nextSong = activePlaylist.shift();
+                playSong(nextSong.id, nextSong.title, nextSong.artist);
+            }
+        }
+
+        function addToPlaylist(id, title, artist) {
+            activePlaylist.push({ id, title, artist });
+            updateUI();
+        }
+
+        function updateUI() {
+            const previouslyPlayedHTML = previouslyPlayed.map(song => `
+                <div class="song-item bg-white rounded-lg shadow p-2 flex justify-between items-center">
+                    <div>
+                        <h3 class="text-sm font-semibold">${song.title}</h3>
+                        <p class="text-xs text-gray-600">${song.artist}</p>
+                    </div>
+                    <button onclick="playSong('${song.id}', '${song.title}', '${song.artist}')" 
+                            class="text-xs bg-indigo-500 text-white px-2 py-1 rounded hover:bg-indigo-600 transition">
+                        Play
+                    </button>
+                </div>
+            `).join('');
+            document.getElementById('previously-played').innerHTML = previouslyPlayedHTML;
+
+            const activePlaylistHTML = activePlaylist.map(song => `
+                <div class="song-item bg-white rounded-lg shadow p-2 flex justify-between items-center">
+                    <div>
+                        <h3 class="text-sm font-semibold">${song.title}</h3>
+                        <p class="text-xs text-gray-600">${song.artist}</p>
+                    </div>
+                    <button onclick="playSong('${song.id}', '${song.title}', '${song.artist}')" 
+                            class="text-xs bg-indigo-500 text-white px-2 py-1 rounded hover:bg-indigo-600 transition">
+                        Play
+                    </button>
+                </div>
+            `).join('');
+            document.getElementById('active-playlist').innerHTML = activePlaylistHTML;
+
+            const nextInListHTML = nextInList.map(song => `
+                <div class="song-item bg-white rounded-lg shadow p-2 flex justify-between items-center">
+                    <div>
+                        <h3 class="text-sm font-semibold">${song.title}</h3>
+                        <p class="text-xs text-gray-600">${song.artist}</p>
+                    </div>
+                    <button onclick="playSong('${song.id}', '${song.title}', '${song.artist}')" 
+                            class="text-xs bg-indigo-500 text-white px-2 py-1 rounded hover:bg-indigo-600 transition">
+                        Play
+                    </button>
+                </div>
+            `).join('');
+            document.getElementById('next-in-list').innerHTML = nextInListHTML;
+        }
+
+        // Modify the existing htmx.on('htmx:afterSwap') function
+        htmx.on('htmx:afterSwap', function(evt) {
+            if (evt.detail.target.id === 'song-list') {
+                const songs = JSON.parse(evt.detail.xhr.response).songs;
+                const songList = document.getElementById('song-list');
+                songList.innerHTML = songs.map(song => `
+                    <div class="song-item bg-white rounded-lg shadow p-4 flex justify-between items-center">
+                        <div>
+                            <h3 class="text-lg font-semibold">${song.title}</h3>
+                            <p class="text-gray-600">${song.artist}</p>
+                        </div>
+                        <div>
+                            <button 
+                                onclick="playSong('${song.id}', '${song.title}', '${song.artist}')"
+                                class="play-button bg-indigo-500 text-white px-4 py-2 rounded-full hover:bg-indigo-600 transition mr-2"
+                            >
+                                Play
+                            </button>
+                            <button 
+                                onclick="addToPlaylist('${song.id}', '${song.title}', '${song.artist}')"
+                                class="add-to-playlist-button bg-green-500 text-white px-4 py-2 rounded-full hover:bg-green-600 transition"
+                            >
+                                Add to Playlist
+                            </button>
+                        </div>
+                    </div>
+                `).join('');
+            }
+        });
+
+        function updateUI() {
+            const songItemTemplate = (song, buttonAction) => `
+                <div class="song-item gradient-border bg-white p-4 flex justify-between items-center">
+                    <div>
+                        <h3 class="text-sm font-medium text-gray-900">${song.title}</h3>
+                        <p class="text-sm text-gray-500">${song.artist}</p>
+                    </div>
+                    <button onclick="${buttonAction}('${song.id}', '${song.title}', '${song.artist}')" 
+                            class="text-xs bg-gray-900 text-white px-3 py-1.5 rounded-full hover:bg-gray-800 transition">
+                        Play
+                    </button>
+                </div>
+            `;
+
+            document.getElementById('previously-played').innerHTML = 
+                previouslyPlayed.map(song => songItemTemplate(song, 'playSong')).join('');
+            document.getElementById('active-playlist').innerHTML = 
+                activePlaylist.map(song => songItemTemplate(song, 'playSong')).join('');
+            document.getElementById('next-in-list').innerHTML = 
+                nextInList.map(song => songItemTemplate(song, 'playSong')).join('');
+        }
+
+        htmx.on('htmx:afterSwap', function(evt) {
+            if (evt.detail.target.id === 'song-list') {
+                const songs = JSON.parse(evt.detail.xhr.response).songs;
+                const songList = document.getElementById('song-list');
+                songList.innerHTML = songs.map(song => `
+                    <div class="song-item gradient-border bg-white p-6 flex justify-between items-center">
+                        <div>
+                            <h3 class="text-base font-medium text-gray-900">${song.title}</h3>
+                            <p class="text-sm text-gray-500">${song.artist}</p>
+                        </div>
+                        <div class="flex space-x-3">
+                            <button 
+                                onclick="playSong('${song.id}', '${song.title}', '${song.artist}')"
+                                class="play-button bg-gray-900 text-white px-4 py-2 rounded-full hover:bg-gray-800 transition"
+                            >
+                                Play
+                            </button>
+                            <button 
+                                onclick="addToPlaylist('${song.id}', '${song.title}', '${song.artist}')"
+                                class="play-button bg-white text-gray-900 px-4 py-2 rounded-full border border-gray-200 hover:border-gray-300 transition"
+                            >
+                                Add to Playlist
+                            </button>
+                        </div>
+                    </div>
+                `).join('');
+            }
+        });
+    </script>
+</body>
+</html>

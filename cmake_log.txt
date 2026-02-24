@@ -1,0 +1,39 @@
+#!/bin/bash
+
+# Create build directory if it doesn't exist
+mkdir -p build
+cd build
+
+# Install dependencies using Conan
+conan install .. --output-folder=. --build=missing
+
+# Configure CMake
+cmake .. -DCMAKE_TOOLCHAIN_FILE=conan_toolchain.cmake -DCMAKE_BUILD_TYPE=Release
+
+# Build the project
+cmake --build .
+
+# Go back to root directory
+cd ..
+
+# Start the servers
+echo "Starting music player servers..."
+
+# Start Python HTTP server for frontend
+python3 -m http.server 8000 &
+FRONTEND_PID=$!
+
+# Start the C++ backend server
+./build/music_player &
+BACKEND_PID=$!
+
+echo "Music player is running!"
+echo "Access the frontend at: http://localhost:8000"
+echo "Backend API is running at: http://localhost:3000"
+echo "Press Ctrl+C to stop the servers"
+
+# Handle cleanup on script termination
+trap "kill $FRONTEND_PID $BACKEND_PID; exit" INT TERM
+
+# Wait for either server to exit
+wait

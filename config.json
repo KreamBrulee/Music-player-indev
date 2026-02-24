@@ -1,0 +1,10 @@
+{
+    "port": 3000,
+    "host": "localhost",
+    "music_directory": "songs",
+    "max_queue_size": 50,
+    "max_history_size": 10,
+    "read_timeout": 15,
+    "write_timeout": 15,
+    "keep_alive_max_count": 20
+  }
