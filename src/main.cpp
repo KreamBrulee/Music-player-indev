@@ -276,8 +276,8 @@ int main() {
         res.set_content(content, "text/html");
     });
 
-    std::cout << "Server starting on port 3000..." << std::endl;
-    svr.listen("0.0.0.0", 3000);
+    std::cout << "Server starting on port 3301..." << std::endl;
+    svr.listen("0.0.0.0", 3301);
     
     return 0;
 }
