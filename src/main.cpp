@@ -174,93 +174,55 @@ int main() {
         res.set_content(response.dump(), "application/json");
     });
 
-    // Play song (streaming with improved buffering)
+    // Play song (streams via httplib's own range-request handling)
     svr.Get(R"(/api/songs/(\d+)/play)", [](const httplib::Request& req, httplib::Response& res) {
         std::string id = req.matches[1].str();
         auto it = std::find_if(songs.begin(), songs.end(),
             [&id](const Song& song) { return song.id == id; });
-            
+
         if (it == songs.end()) {
             std::cerr << "Song not found: " << id << std::endl;
             res.status = 404;
             return;
         }
-        
-        std::cout << "Streaming song: " << it->title << " (ID: " << id << ")" << std::endl;
-            
-        std::ifstream file(it->filepath, std::ios::binary);
-        if (!file) {
+
+        std::error_code ec;
+        auto fileSize = fs::file_size(it->filepath, ec);
+        if (ec) {
             std::cerr << "Cannot open file: " << it->filepath << std::endl;
             res.status = 404;
             return;
         }
 
-        // Get file size
-        file.seekg(0, std::ios::end);
-        size_t fileSize = file.tellg();
-        file.seekg(0, std::ios::beg);
-        
-        std::cout << "  File size: " << fileSize << " bytes" << std::endl;
+        std::cout << "Streaming song: " << it->title << " (ID: " << id
+                  << ", " << fileSize << " bytes)" << std::endl;
 
-        // Set common headers for better streaming
         res.set_header("Accept-Ranges", "bytes");
-        res.set_header("Content-Type", "audio/mpeg");
         res.set_header("Cache-Control", "public, max-age=3600");
         res.set_header("Connection", "keep-alive");
 
-        // Handle range request if present (for seeking and better buffering)
-        if (req.has_header("Range")) {
-            std::string range = req.get_header_value("Range");
-            size_t start = 0, end = fileSize - 1;
-            
-            std::cout << "  Range request: " << range << std::endl;
-            
-            // Parse range header - supports "bytes=start-end" and "bytes=start-"
-            int parsed = sscanf(range.c_str(), "bytes=%zu-%zu", &start, &end);
-            
-            if (parsed == 1) {
-                // Only start specified (bytes=start-)
-                // This means "from start to end of file"
-                // Let the browser decide how much to request, don't artificially limit
-                end = fileSize - 1;
-            }
-            // If parsed == 2, both start and end are set by browser
-            
-            // Validate and clamp values
-            if (start >= fileSize) start = 0;
-            if (end >= fileSize) end = fileSize - 1;
-            if (start > end) start = end;
-            
-            size_t contentLength = end - start + 1;
-            
-            std::cout << "  Serving bytes " << start << "-" << end << "/" << fileSize 
-                      << " (" << contentLength << " bytes)" << std::endl;
+        // Let httplib parse the Range header and drive this provider with the
+        // exact (offset, length) it needs — it also sets the matching status
+        // (200/206) and Content-Range/Content-Length headers itself. Handling
+        // ranges manually here caused httplib's own range validation to run a
+        // second time against an already-sliced body and reject most seeks
+        // with a spurious 416 (this only "worked" for full-file, open-ended
+        // requests, which is why Chrome played fine but Safari, which makes
+        // precise bounded range requests, didn't).
+        std::string filepath = it->filepath;
+        res.set_content_provider(
+            fileSize, "audio/mpeg",
+            [filepath](size_t offset, size_t length, httplib::DataSink& sink) {
+                std::ifstream file(filepath, std::ios::binary);
+                if (!file) return false;
 
-            file.seekg(start);
-            std::vector<char> buffer(contentLength);
-            file.read(buffer.data(), contentLength);
-            
-            // Check if read was successful
-            if (!file || file.gcount() != static_cast<std::streamsize>(contentLength)) {
-                std::cerr << "  ERROR: Failed to read " << contentLength << " bytes, got " 
-                          << file.gcount() << " bytes" << std::endl;
-            }
+                file.seekg(static_cast<std::streamoff>(offset));
+                std::vector<char> buffer(length);
+                file.read(buffer.data(), static_cast<std::streamsize>(length));
+                if (file.bad()) return false;
 
-            res.set_header("Content-Range", "bytes " + std::to_string(start) + "-" + 
-                          std::to_string(end) + "/" + std::to_string(fileSize));
-            res.set_header("Content-Length", std::to_string(contentLength));
-            res.status = 206;  // Partial Content
-            res.body.assign(buffer.data(), contentLength);
-        } else {
-            std::cout << "  Serving entire file" << std::endl;
-            
-            // Send entire file with proper headers
-            std::vector<char> buffer(fileSize);
-            file.read(buffer.data(), fileSize);
-            
-            res.set_header("Content-Length", std::to_string(fileSize));
-            res.body.assign(buffer.data(), fileSize);
-        }
+                return sink.write(buffer.data(), static_cast<size_t>(file.gcount()));
+            });
     });
 
     // Serve the index.html file at root

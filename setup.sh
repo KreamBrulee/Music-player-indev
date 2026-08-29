@@ -1,9 +1,16 @@
 #!/bin/bash
 
 # Install required build tools and compilers
-echo "Installing required build tools..."
-sudo apt-get update
-sudo apt-get install -y build-essential cmake g++ gcc
+if [ "$(uname -s)" = "Darwin" ]; then
+    echo "Installing required build tools via Homebrew..."
+    brew install cmake
+    JOBS="$(sysctl -n hw.ncpu)"
+else
+    echo "Installing required build tools..."
+    sudo apt-get update
+    sudo apt-get install -y build-essential cmake g++ gcc
+    JOBS="$(nproc)"
+fi
 
 # Create necessary directories
 mkdir -p build songs src
@@ -17,7 +24,7 @@ fi
 cd build
 rm -rf *
 cmake ..
-cmake --build . -j$(nproc)
+cmake --build . -j"$JOBS"
 
 # Go back to root directory
 cd ..

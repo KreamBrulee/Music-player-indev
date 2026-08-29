@@ -15,5 +15,9 @@ add_executable(music_player src/main.cpp)
 find_package(Threads REQUIRED)
 target_link_libraries(music_player PRIVATE Threads::Threads)
 
-# Link filesystem library if necessary
-target_link_libraries(music_player PRIVATE stdc++fs)
+# GCC before 9 ships <filesystem> in a separate library that must be linked
+# explicitly. Clang/AppleClang and GCC >= 9 have it built into libstdc++/libc++,
+# and libstdc++fs doesn't even exist on macOS, so only link it when needed.
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 9.0)
+    target_link_libraries(music_player PRIVATE stdc++fs)
+endif()

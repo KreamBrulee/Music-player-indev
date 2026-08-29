@@ -5,6 +5,14 @@
 
 set -e  # Exit on error
 
+if [ "$(uname -s)" = "Darwin" ]; then
+    echo "This script sets up a systemd service, which is Linux-only and not"
+    echo "available on macOS. On macOS, run the server directly with ./deploy.sh,"
+    echo "or in the background with:"
+    echo "  nohup ./build/music_player > music_player.log 2>&1 &"
+    exit 1
+fi
+
 echo "=================================="
 echo "Music Player Systemd Service Setup"
 echo "=================================="
