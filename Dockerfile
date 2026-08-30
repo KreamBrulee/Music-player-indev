@@ -1,5 +1,3 @@
-# syntax=docker/dockerfile:1
-
 # ---- build stage: compile music_player from source ----
 FROM debian:bookworm-slim AS build
 
