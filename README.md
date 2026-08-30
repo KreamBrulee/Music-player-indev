@@ -58,22 +58,95 @@ There's no equivalent script for macOS — use the `nohup` approach above, or
 manage the process however you'd normally run a background tool on your
 machine.
 
+## Docker
+
+Build and run the server in a container — no local compiler or CMake needed
+on the host, just Docker.
+
+```bash
+docker compose up -d --build
+```
+
+Open `http://localhost:3000` in a browser.
+
+This uses `Dockerfile` (multi-stage: compiles `music_player` in a build
+image, ships only the binary + `public/` + `config.json` in a slim,
+non-root runtime image) and `docker-compose.yml`. The real `songs/` mp3s
+are never baked into the image — see `.dockerignore`.
+
+### Pointing it at your music library
+
+`docker-compose.yml` bind-mounts a `songs/` folder by default:
+
+```yaml
+volumes:
+  - ./songs:/app/songs
+```
+
+Change the host side (left of the `:`) to your real music folder, e.g.
+`/Users/you/Music:/app/songs`, then `docker compose up -d`. No rebuild
+needed for a volume path change.
+
+### Editing config.json without rebuilding
+
+`config.json` is baked into the image at build time. To change settings
+without rebuilding, uncomment the `config.json` line under `volumes:` in
+`docker-compose.yml`, edit the file on the host, then
+`docker compose restart`.
+
+### Permissions
+
+The container runs as a fixed non-root user (uid 1000). It only ever reads
+`songs/`, never writes to it, so normal file permissions on your music
+folder (readable by anyone, the default on most systems) are enough. If you
+get permission errors, `chmod -R a+rX /path/to/your/music` on the host.
+
+### Without Docker Compose
+
+```bash
+docker build -t music-player .
+docker run -d --name music-player -p 3000:3000 \
+  -v /path/to/your/music:/app/songs music-player
+```
+
+## Configuration
+
+All settings live in [config.json](config.json) (edit it directly — it's
+committed with sensible defaults, no secrets in it). It's read at startup; a
+missing or invalid file just logs a warning and falls back to defaults, it
+won't stop the server from starting.
+
+| Key                    | Default     | What it does                                                             |
+|-------------------------|-------------|---------------------------------------------------------------------------|
+| `host`                  | `0.0.0.0`   | Bind address. Keep this as `0.0.0.0` to stay reachable from other devices/containers — `localhost` would restrict it to the machine it's running on. |
+| `port`                  | `3000`      | Port to listen on.                                                       |
+| `music_directory`       | `songs`     | Folder scanned for `.mp3`/`.wav`/`.ogg` files.                          |
+| `max_queue_size`        | `50`        | Cap on the server-side play queue (`/api/playlist/add`).                |
+| `max_history_size`      | `10`        | Cap on the server-side play history (`/api/songs/previous`).            |
+| `read_timeout` / `write_timeout` | `15` (seconds) | HTTP socket timeouts.                                          |
+| `keep_alive_max_count`  | `20`        | Max requests per keep-alive connection.                                 |
+| `base_url`              | `""`        | Only needed if the frontend is ever served from a different origin than this backend (e.g. frontend on a CDN, backend as a separate API server on the cloud). Leave empty for the normal setup, where this server serves both the frontend and the API together. |
+
 ## Project Structure
 
 ```
 music-player/
 ├── deploy.sh          build and run (macOS/Linux)
 ├── deploy_systemd.sh  install as a systemd service (Linux only)
+├── Dockerfile          multi-stage container build
+├── docker-compose.yml  container build + run, with songs/ mounted
 ├── CMakeLists.txt     build configuration
+├── config.json         server settings (see Configuration below)
 ├── src/main.cpp       the server
 ├── include/           vendored headers (cpp-httplib, nlohmann/json)
-├── index.html         the web UI
+├── public/            the web UI (index.html, style.css, app.js)
 └── songs/             your music library
 ```
 
 ## API
 
-The server exposes a small JSON API alongside the web UI, all on port 3000:
+The server exposes a small JSON API alongside the web UI, all on the
+configured port (3000 by default):
 
 | Method | Path                    | Description                                  |
 |--------|-------------------------|-----------------------------------------------|

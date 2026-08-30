@@ -6,10 +6,49 @@
 #include <fstream>
 #include <algorithm>
 #include <deque>
-#include <stack>
 
 using json = nlohmann::json;
 namespace fs = std::filesystem;
+
+struct Config {
+    std::string host = "0.0.0.0";
+    int port = 3000;
+    std::string musicDirectory = "songs";
+    size_t maxQueueSize = 50;
+    size_t maxHistorySize = 10;
+    int readTimeout = 15;
+    int writeTimeout = 15;
+    size_t keepAliveMaxCount = 20;
+    std::string baseUrl = "";
+};
+
+Config config;
+
+// Loads settings from config.json, falling back to the defaults above for
+// anything missing. Missing/unparseable file is not fatal — just a warning.
+void loadConfig(const std::string& path) {
+    std::ifstream file(path);
+    if (!file) {
+        std::cerr << "WARNING: " << path << " not found, using default settings" << std::endl;
+        return;
+    }
+    try {
+        json j;
+        file >> j;
+        if (j.contains("host")) config.host = j["host"].get<std::string>();
+        if (j.contains("port")) config.port = j["port"].get<int>();
+        if (j.contains("music_directory")) config.musicDirectory = j["music_directory"].get<std::string>();
+        if (j.contains("max_queue_size")) config.maxQueueSize = j["max_queue_size"].get<size_t>();
+        if (j.contains("max_history_size")) config.maxHistorySize = j["max_history_size"].get<size_t>();
+        if (j.contains("read_timeout")) config.readTimeout = j["read_timeout"].get<int>();
+        if (j.contains("write_timeout")) config.writeTimeout = j["write_timeout"].get<int>();
+        if (j.contains("keep_alive_max_count")) config.keepAliveMaxCount = j["keep_alive_max_count"].get<size_t>();
+        if (j.contains("base_url")) config.baseUrl = j["base_url"].get<std::string>();
+    } catch (const std::exception& e) {
+        std::cerr << "WARNING: failed to parse " << path << ": " << e.what()
+                  << " — using default settings" << std::endl;
+    }
+}
 
 struct Song {
     std::string id;
@@ -19,7 +58,7 @@ struct Song {
 };
 
 std::deque<Song> playlist;
-std::stack<Song> history;
+std::deque<Song> history;
 std::vector<Song> songs;
 
 // Function to extract title from filename
@@ -58,6 +97,7 @@ void scanSongsDirectory(const std::string& dirPath) {
 
 void addToPlaylist(const Song& song) {
     playlist.push_back(song);
+    while (playlist.size() > config.maxQueueSize) playlist.pop_front();
 }
 
 Song getNextSong() {
@@ -70,24 +110,37 @@ Song getNextSong() {
 }
 
 void addToHistory(const Song& song) {
-    history.push(song);
+    history.push_back(song);
+    while (history.size() > config.maxHistorySize) history.pop_front();
 }
 
 Song getPreviousSong() {
     if (history.empty()) {
         throw std::runtime_error("No previous songs");
     }
-    Song prevSong = history.top();
-    history.pop();
+    Song prevSong = history.back();
+    history.pop_back();
     return prevSong;
 }
 
 
 int main() {
+    loadConfig("config.json");
+
     httplib::Server svr;
 
     // Scan the songs directory at startup
-    scanSongsDirectory("songs");
+    scanSongsDirectory(config.musicDirectory);
+
+    // Serve the frontend (index.html, style.css, app.js) from ./public
+    if (!svr.set_mount_point("/", "./public")) {
+        std::cerr << "ERROR: could not find ./public directory to serve the frontend from" << std::endl;
+        return 1;
+    }
+
+    svr.set_read_timeout(config.readTimeout);
+    svr.set_write_timeout(config.writeTimeout);
+    svr.set_keep_alive_max_count(config.keepAliveMaxCount);
 
     // Add CORS headers to all responses
     svr.set_default_headers({
@@ -99,6 +152,16 @@ int main() {
     // Handle OPTIONS requests for CORS
     svr.Options("/(.*)", [](const httplib::Request&, httplib::Response& res) {
         res.status = 204;  // No content
+    });
+
+    // Runtime config for the frontend. base_url (config.json) is only needed
+    // when the frontend is served from a different origin than this backend
+    // (e.g. frontend on a CDN, backend as a separate API server); left empty
+    // it stays empty and the frontend just uses relative URLs (today's setup).
+    svr.Get("/config.js", [](const httplib::Request&, httplib::Response& res) {
+        json frontendConfig;
+        frontendConfig["baseUrl"] = config.baseUrl;
+        res.set_content("window.APP_CONFIG = " + frontendConfig.dump() + ";", "application/javascript");
     });
 
     // Get all songs
@@ -126,7 +189,7 @@ int main() {
         auto it = std::find_if(songs.begin(), songs.end(),
             [&songId](const Song& song) { return song.id == songId; });
         if (it != songs.end()) {
-            playlist.push_back(*it);
+            addToPlaylist(*it);
             res.set_content("Song added to playlist", "text/plain");
         } else {
             res.status = 404;
@@ -164,8 +227,8 @@ int main() {
             res.set_content("No previous songs", "text/plain");
             return;
         }
-        Song prevSong = history.top();
-        history.pop();
+        Song prevSong = history.back();
+        history.pop_back();
         json response = {
             {"id", prevSong.id},
             {"title", prevSong.title},
@@ -225,21 +288,8 @@ int main() {
             });
     });
 
-    // Serve the index.html file at root
-    svr.Get("/", [](const httplib::Request&, httplib::Response& res) {
-        std::ifstream file("index.html");
-        if (!file) {
-            res.status = 404;
-            res.set_content("index.html not found", "text/plain");
-            return;
-        }
-        std::string content((std::istreambuf_iterator<char>(file)),
-                           std::istreambuf_iterator<char>());
-        res.set_content(content, "text/html");
-    });
+    std::cout << "Server starting on " << config.host << ":" << config.port << "..." << std::endl;
+    svr.listen(config.host, config.port);
 
-    std::cout << "Server starting on port 3000..." << std::endl;
-    svr.listen("0.0.0.0", 3000);
-    
     return 0;
 }

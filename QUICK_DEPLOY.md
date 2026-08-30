@@ -90,11 +90,31 @@ sudo systemctl start music-player
 sudo systemctl disable music-player
 ```
 
+### Option 4: Docker
+
+Runs in a container — no local compiler/CMake install needed at all.
+
+```bash
+docker compose up -d --build
+```
+
+Point it at your real music library by editing the volume line in
+`docker-compose.yml` (`./songs:/app/songs` → `/path/to/your/music:/app/songs`)
+before running. See the [Docker section](README.md#docker) in the README
+for permissions notes, editing `config.json` without rebuilding, and plain
+`docker run` usage.
+
+```bash
+docker compose logs -f     # logs
+docker compose down        # stop
+```
+
 ## What About setup.sh?
 
 The old `setup.sh` script starts two servers — a Python HTTP server for the
 frontend on port 8000, plus the C++ backend. It's no longer needed: the C++
-server now serves `index.html` directly. Don't use it for deployment.
+server now serves the frontend (`public/index.html`) directly. Don't use it
+for deployment.
 
 ## After Code Changes
 
@@ -124,8 +144,10 @@ pkill music_player
 music-player/
 ├── deploy.sh              build and run script (macOS/Linux)
 ├── deploy_systemd.sh      systemd install script (Linux only)
+├── Dockerfile              multi-stage container build
+├── docker-compose.yml      container build + run, with songs/ mounted
 ├── setup.sh                old script, do not use
-├── index.html              must be in the project root
+├── public/                 the web UI (index.html, style.css, app.js)
 ├── CMakeLists.txt          build configuration
 ├── build/                  created by deploy.sh
 │   └── music_player        created after building
@@ -209,4 +231,5 @@ curl http://localhost:3000/api/songs
 - For quick testing: `./deploy.sh`
 - For a background process: `nohup ./build/music_player > music_player.log 2>&1 &`
 - For a managed, auto-restarting service on Linux: `sudo ./deploy_systemd.sh`
+- For a container: `docker compose up -d --build`
 - Ignore `setup.sh`

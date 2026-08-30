@@ -1,0 +1,17 @@
+services:
+  music-player:
+    build: .
+    image: music-player:latest
+    container_name: music-player
+    ports:
+      - "3000:3000"
+    volumes:
+      # Point the left side at your real music library, e.g.
+      # /Users/you/Music:/app/songs — keep the right side (/app/songs) as-is,
+      # it's where config.json's "music_directory": "songs" resolves inside
+      # the container.
+      - ./songs:/app/songs
+      # Optional: uncomment to edit config.json on the host without
+      # rebuilding the image (changes apply on `docker compose restart`).
+      # - ./config.json:/app/config.json:ro
+    restart: unless-stopped

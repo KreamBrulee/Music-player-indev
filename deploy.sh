@@ -50,14 +50,14 @@ fi
 
 # 2. Create necessary directories
 echo "Creating directories..."
-mkdir -p build songs src include
+mkdir -p build songs src include public
 
-# 3. Ensure index.html is in the root directory
-if [ ! -f index.html ]; then
-    echo "ERROR: index.html not found in root directory!"
+# 3. Ensure the frontend is in place
+if [ ! -f public/index.html ]; then
+    echo "ERROR: public/index.html not found!"
     exit 1
 fi
-echo "index.html found ✓"
+echo "public/index.html found ✓"
 
 # 4. Ensure songs directory has music files
 SONG_COUNT=$(find songs -name "*.mp3" -o -name "*.wav" -o -name "*.ogg" | wc -l | tr -d ' ')
