@@ -26,7 +26,7 @@
   gather_facts: false
 
   vars:
-    project_dir: 'D:\Kunal\Remote Projects\Music-player-indev'
+    project_dir: 'D:\Kunal\VS_codes\music-player-indev'
     repo_branch: Nova_dev
 
   tasks:
@@ -56,6 +56,17 @@
     - name: Show docker compose output
       ansible.builtin.debug:
         var: compose_up.stdout_lines
+
+    - name: Fail if the build actually errored
+      ansible.builtin.fail:
+        msg: >-
+          docker compose reported success but the build step failed (see the
+          output above) — docker compose can exit 0 and leave a stale
+          container running from an earlier build even when --build itself
+          errors, so this would otherwise look like a successful deploy of
+          code that never actually got built. Fix the underlying error on
+          the host and re-run.
+      when: "'ERROR' in compose_up.stdout or 'failed to solve' in compose_up.stdout"
 
     - name: Verify the API responds
       ansible.builtin.raw: (Invoke-WebRequest -Uri http://localhost:3000/api/songs -UseBasicParsing).StatusCode
