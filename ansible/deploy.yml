@@ -1,0 +1,73 @@
+---
+# Deploys the current state of the Nova_dev branch to the home hosting
+# machine: pulls latest code, rebuilds the Docker image, and restarts the
+# container via docker compose.
+#
+# Run from a Linux/macOS/WSL control machine (native Windows can't run
+# ansible-playbook itself):
+#
+#   ansible-playbook -i inventory.ini deploy.yml
+#
+# Uses `raw` instead of the usual Ansible modules for the actual commands.
+# This is deliberate: connecting to Windows over plain SSH (as opposed to
+# WinRM) means the normal Python-based modules (git, command, uri, ...)
+# only work if Python is confirmed installed on the target. `raw` sends the
+# command straight to the remote shell with no such dependency, so this
+# works whether or not that Windows machine has Python — at the cost of
+# losing Ansible's usual idempotency/change-tracking, which doesn't matter
+# much for a small home deploy script like this one.
+#
+# Windows PowerShell 5.1 (the default on most Windows installs, as opposed
+# to PowerShell 7+) doesn't support && for chaining commands, so `;` is
+# used throughout instead.
+
+- name: Deploy music player to home hosting machine
+  hosts: music_host
+  gather_facts: false
+
+  vars:
+    project_dir: 'D:\Kunal\Remote Projects\Music-player-indev'
+    repo_branch: Nova_dev
+
+  tasks:
+    - name: Pull latest code
+      ansible.builtin.raw: "Set-Location '{{ project_dir }}'; git pull origin {{ repo_branch }}"
+      register: git_pull
+      changed_when: git_pull.stdout is not search("Already up.to.date")
+
+    - name: Check Docker is responding
+      ansible.builtin.raw: docker info
+      register: docker_check
+      ignore_errors: true
+      changed_when: false
+
+    - name: Fail with a clear message if Docker isn't running
+      ansible.builtin.fail:
+        msg: >-
+          Docker Desktop isn't responding on {{ inventory_hostname }}.
+          Ansible can't launch a GUI app on Windows, so start Docker Desktop
+          there manually and re-run this playbook.
+      when: docker_check.rc != 0
+
+    - name: Build and (re)start the container
+      ansible.builtin.raw: "Set-Location '{{ project_dir }}'; docker compose up -d --build"
+      register: compose_up
+
+    - name: Show docker compose output
+      ansible.builtin.debug:
+        var: compose_up.stdout_lines
+
+    - name: Verify the API responds
+      ansible.builtin.raw: (Invoke-WebRequest -Uri http://localhost:3000/api/songs -UseBasicParsing).StatusCode
+      register: health_check
+      retries: 10
+      delay: 3
+      until: health_check.stdout is search("200")
+      ignore_errors: true
+
+    - name: Report result
+      ansible.builtin.fail:
+        msg: >-
+          Container started but /api/songs isn't responding with 200 after
+          30s. Check `docker compose logs` on the host.
+      when: health_check.stdout is not search("200")

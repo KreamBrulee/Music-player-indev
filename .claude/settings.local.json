@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(docker --version)",
+      "Bash(docker info *)",
+      "Bash(docker build *)",
+      "Bash(docker create *)",
+      "Bash(docker export *)",
+      "Bash(tar -tv)",
+      "Bash(grep -E 'app/\\(build|public|config.json|songs\\)\\($|/\\)')",
+      "Bash(docker rm *)",
+      "Bash(docker compose *)",
+      "Bash(docker exec *)",
+      "Bash(docker run *)",
+      "Bash(curl -s http://localhost:3000/api/songs)",
+      "Bash(docker stop *)",
+      "Bash(docker rmi *)"
+    ]
+  }
+}

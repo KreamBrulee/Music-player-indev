@@ -109,6 +109,13 @@ docker run -d --name music-player -p 3000:3000 \
   -v /path/to/your/music:/app/songs music-player
 ```
 
+### Deploying to a remote/home hosting machine
+
+See [ansible/README.md](ansible/README.md) — a playbook that pulls the
+latest code onto an always-on machine over SSH and runs the same Docker
+Compose setup there, for when you want this running somewhere other than
+your dev machine.
+
 ## Configuration
 
 All settings live in [config.json](config.json) (edit it directly — it's
@@ -135,6 +142,7 @@ music-player/
 ├── deploy_systemd.sh  install as a systemd service (Linux only)
 ├── Dockerfile          multi-stage container build
 ├── docker-compose.yml  container build + run, with songs/ mounted
+├── ansible/            deploy this to a remote/home host over SSH
 ├── CMakeLists.txt     build configuration
 ├── config.json         server settings (see Configuration below)
 ├── src/main.cpp       the server
