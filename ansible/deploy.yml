@@ -49,24 +49,42 @@
           there manually and re-run this playbook.
       when: docker_check.rc != 0
 
-    - name: Build and (re)start the container
-      ansible.builtin.raw: "Set-Location '{{ project_dir }}'; docker compose up -d --build"
+    - name: Build the image with the legacy builder
+      # docker compose's build step always goes through buildx/bake
+      # regardless of DOCKER_BUILDKIT, so it can't be steered around
+      # BuildKit the way plain `docker build` can. This host's Docker
+      # Desktop can't reach Windows Credential Manager over an SSH session
+      # (DPAPI only unlocks on a true interactive/RDP logon, not SSH) —
+      # BuildKit hard-fails when a credential helper errors, even for an
+      # anonymous public-image pull needing no real credentials, but the
+      # legacy builder just proceeds anonymously instead. So: build with
+      # the legacy builder here, then let compose start the already-built
+      # image below without rebuilding — compose never touches BuildKit at
+      # all that way.
+      ansible.builtin.raw: "$env:DOCKER_BUILDKIT=0; Set-Location '{{ project_dir }}'; docker build -t music-player ."
+      register: docker_build
+
+    - name: Show docker build output
+      ansible.builtin.debug:
+        var: docker_build.stdout_lines
+
+    - name: Fail if the build actually errored
+      ansible.builtin.fail:
+        msg: "docker build failed (see output above)."
+      when: docker_build.rc != 0
+
+    - name: Start the container (image already built above, no rebuild needed)
+      ansible.builtin.raw: "Set-Location '{{ project_dir }}'; docker compose up -d"
       register: compose_up
 
     - name: Show docker compose output
       ansible.builtin.debug:
         var: compose_up.stdout_lines
 
-    - name: Fail if the build actually errored
+    - name: Fail if compose actually errored
       ansible.builtin.fail:
-        msg: >-
-          docker compose reported success but the build step failed (see the
-          output above) — docker compose can exit 0 and leave a stale
-          container running from an earlier build even when --build itself
-          errors, so this would otherwise look like a successful deploy of
-          code that never actually got built. Fix the underlying error on
-          the host and re-run.
-      when: "'ERROR' in compose_up.stdout or 'failed to solve' in compose_up.stdout"
+        msg: "docker compose up failed (see output above)."
+      when: "'ERROR' in compose_up.stdout"
 
     - name: Verify the API responds
       ansible.builtin.raw: (Invoke-WebRequest -Uri http://localhost:3000/api/songs -UseBasicParsing).StatusCode

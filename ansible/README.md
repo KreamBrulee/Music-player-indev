@@ -15,7 +15,7 @@ code, rebuild the image, restart the container.
     and fails with a clear message if not — it can't launch a GUI app
     remotely, so you start it manually if needed).
   - The repo already cloned (matches the path already in use:
-    `D:\Kunal\Remote Projects\Music-player-indev`).
+    `D:\Kunal\VS_codes\music-player-indev`).
 
 ## Setup
 
@@ -33,10 +33,48 @@ run this yourself, in your own terminal. Don't paste the password anywhere
 else (including to Claude/an AI assistant) — it'd end up sitting in that
 tool's logs.
 
-This pulls the `Nova_dev` branch, runs `docker compose up -d --build`, and
-checks `/api/songs` responds before finishing.
+This pulls the `Nova_dev` branch, builds the image, starts the container,
+and checks `/api/songs` responds before finishing.
 
-### Why `--ask-pass` instead of key auth
+### Why the build and the container start are separate steps
+
+`docker compose up --build` doesn't work on this host — see below. So
+`deploy.yml` runs `docker build` (with the legacy builder) as its own step,
+then `docker compose up -d` with no `--build` flag, which just starts a
+container from the image that step already produced instead of trying to
+build one itself.
+
+### Why the legacy builder (`DOCKER_BUILDKIT=0`)
+
+This machine's Docker Desktop can't pull `debian:bookworm-slim` — even
+though it's a public image needing no real credentials — with an error like
+`error getting credentials ... A specified logon session does not exist`.
+Confirmed root cause, not a guess: `docker-credential-desktop.exe` **and**
+`docker-credential-wincred.exe` (Docker's own helper and the plain Windows
+Credential Manager API helper) both fail identically when run directly,
+which rules out anything Docker-specific being broken. What's actually
+going on: Windows Credential Manager relies on DPAPI, which only unlocks
+for a user's profile on a true **interactive** logon (console or RDP) — an
+SSH logon, even with a correct password, establishes a **network**-type
+logon instead, which never unlocks it. Confirmed this isn't a stale/fixable
+state either — it survives a full, genuine restart of the machine.
+
+BuildKit (Docker's default builder, and what `docker compose` always uses
+for its build step, unconditionally) hard-fails the moment a credential
+helper errors, even for a pull that needs no credentials at all. The
+legacy builder is more forgiving — a failed/empty credential lookup just
+means "try anonymously" instead of aborting — so setting
+`DOCKER_BUILDKIT=0` before `docker build` sidesteps the whole problem for
+that command. `docker compose`'s build step doesn't respect that variable
+(it always goes through `buildx`/`bake`), which is exactly why it has to be
+avoided entirely rather than fixed with the same flag.
+
+If you ever do get physical or RDP access to that machine, `docker compose
+up -d --build` should just work there, unmodified — this is specific to
+building over an SSH session, not anything wrong with the Dockerfile or
+compose setup itself.
+
+## Why `--ask-pass` instead of key auth
 
 Key-based auth (no password prompt at all) is the better long-term setup —
 it's what `ansible_connection=ssh` in `inventory.ini` is ready for. It's
@@ -47,7 +85,13 @@ setup, its file contents, its ACL, and the containing folder's ACL have all
 been checked and are correct — the remaining cause is almost certainly
 Win32-OpenSSH's secondary native-Windows-logon step after the SSH-level key
 check passes, which needs someone with hands-on access to that machine's
-Event Viewer (Applications and Services Logs → OpenSSH) to pin down further.
+Event Viewer (Applications and Services Logs → OpenSSH) to pin down
+further. Possibly the same underlying limitation as the Credential Manager
+issue above — SSH logons on Windows not behaving like a true interactive
+one — though unconfirmed; the two symptoms (total auth denial vs. a
+DPAPI-specific failure after a successful logon) aren't obviously the same
+mechanism.
+
 `--ask-pass` (needs `sshpass` on the control node — `brew install sshpass`
 on macOS) is the pragmatic unblock in the meantime: same playbook, just a
 password prompt on every run instead of silent key auth.
