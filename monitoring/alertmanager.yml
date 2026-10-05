@@ -1,0 +1,18 @@
+route:
+  receiver: default
+  group_by: [alertname]
+  group_wait: 10s
+  group_interval: 1m
+  repeat_interval: 4h
+  routes:
+    - matchers: [severity="page"]
+      receiver: oncall
+
+receivers:
+  - name: default
+  - name: oncall
+    # Placeholder: point at a real chat/pager webhook. Without one, alerts are
+    # still visible in the Alertmanager UI (http://localhost:9093).
+    webhook_configs:
+      - url: http://localhost:9999/alert
+        send_resolved: true

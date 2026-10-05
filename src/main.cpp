@@ -1,11 +1,17 @@
 #include "httplib.h"
 #include "json.hpp"
-#include <filesystem>
-#include <vector>
-#include <string>
-#include <fstream>
+#include "metrics.hpp"
+#include "utils.hpp"
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <deque>
+#include <filesystem>
+#include <fstream>
+#include <iostream>
+#include <mutex>
+#include <string>
+#include <vector>
 
 using json = nlohmann::json;
 namespace fs = std::filesystem;
@@ -20,6 +26,9 @@ struct Config {
     int writeTimeout = 15;
     size_t keepAliveMaxCount = 20;
     std::string baseUrl = "";
+    // "text" (default, human-friendly) or "json" (one JSON object per line on
+    // stdout — what the ELK stack in monitoring/ ingests).
+    std::string logFormat = "text";
 };
 
 Config config;
@@ -44,6 +53,7 @@ void loadConfig(const std::string& path) {
         if (j.contains("write_timeout")) config.writeTimeout = j["write_timeout"].get<int>();
         if (j.contains("keep_alive_max_count")) config.keepAliveMaxCount = j["keep_alive_max_count"].get<size_t>();
         if (j.contains("base_url")) config.baseUrl = j["base_url"].get<std::string>();
+        if (j.contains("log_format")) config.logFormat = j["log_format"].get<std::string>();
     } catch (const std::exception& e) {
         std::cerr << "WARNING: failed to parse " << path << ": " << e.what()
                   << " — using default settings" << std::endl;
@@ -60,13 +70,34 @@ struct Song {
 std::deque<Song> playlist;
 std::deque<Song> history;
 std::vector<Song> songs;
+std::mutex playlistMutex;  // guards playlist (requests run on a thread pool)
 
-// Function to extract title from filename
-std::string getTitleFromFilename(const std::string& filename) {
-    size_t lastDot = filename.find_last_of('.');
-    std::string title = (lastDot != std::string::npos) ? filename.substr(0, lastDot) : filename;
-    std::replace(title.begin(), title.end(), '_', ' ');
-    return title;
+Metrics metrics;
+
+// Per-request state for the access log. httplib handles one request per
+// thread at a time, so thread_local is safe between the pre-routing hook and
+// the logger callback.
+thread_local std::chrono::steady_clock::time_point requestStart;
+thread_local std::string currentRequestId;
+std::atomic<uint64_t> requestCounter{0};
+
+// Structured log line. In "json" mode: one JSON object per line on stdout.
+// In "text" mode: a plain line, same style as the original server.
+void logEvent(const std::string& level, const std::string& message,
+              json fields = json::object()) {
+    if (config.logFormat == "json") {
+        auto now = std::chrono::system_clock::now();
+        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                      now.time_since_epoch()).count();
+        fields["ts_ms"] = ms;
+        fields["level"] = level;
+        fields["msg"] = message;
+        fields["service"] = "music-player";
+        std::cout << fields.dump() << std::endl;
+    } else {
+        std::ostream& out = (level == "error" || level == "warn") ? std::cerr : std::cout;
+        out << message << std::endl;
+    }
 }
 
 
@@ -79,7 +110,7 @@ void scanSongsDirectory(const std::string& dirPath) {
         for (const auto& entry : fs::directory_iterator(dirPath)) {
             if (entry.is_regular_file()) {
                 std::string extension = entry.path().extension().string();
-                if (extension == ".mp3" || extension == ".wav" || extension == ".ogg") {
+                if (isSupportedAudioExtension(extension)) {
                     Song song;
                     song.id = std::to_string(id++);
                     song.title = getTitleFromFilename(entry.path().filename().string());
@@ -90,7 +121,8 @@ void scanSongsDirectory(const std::string& dirPath) {
             }
         }
     } catch (const fs::filesystem_error& e) {
-        std::cerr << "Error scanning directory: " << e.what() << std::endl;
+        logEvent("error", std::string("Error scanning directory: ") + e.what(),
+                 {{"dir", dirPath}});
     }
 }
 
@@ -149,6 +181,63 @@ int main() {
         {"Access-Control-Allow-Headers", "*"}
     });
 
+    // Observability: time every request and assign it an id (reuses a
+    // caller-supplied X-Request-ID so traces can be correlated across hops).
+    svr.set_pre_routing_handler([](const httplib::Request& req, httplib::Response& res) {
+        requestStart = std::chrono::steady_clock::now();
+        currentRequestId = req.has_header("X-Request-ID")
+            ? req.get_header_value("X-Request-ID")
+            : std::to_string(++requestCounter);
+        res.set_header("X-Request-ID", currentRequestId);
+        return httplib::Server::HandlerResponse::Unhandled;
+    });
+
+    // Runs after each response: record metrics and emit the access log line.
+    svr.set_logger([](const httplib::Request& req, const httplib::Response& res) {
+        double seconds = std::chrono::duration<double>(
+            std::chrono::steady_clock::now() - requestStart).count();
+        std::string route = normalizeRoute(req.path);
+        metrics.observeRequest(req.method, route, res.status, seconds);
+        if (config.logFormat == "json") {
+            logEvent(res.status >= 500 ? "error" : "info", "request",
+                     {{"request_id", currentRequestId},
+                      {"method", req.method},
+                      {"path", req.path},
+                      {"route", route},
+                      {"status", res.status},
+                      {"duration_ms", seconds * 1000.0}});
+        }
+    });
+
+    // Liveness: the process is up and serving HTTP.
+    svr.Get("/healthz", [](const httplib::Request&, httplib::Response& res) {
+        json body = {{"status", "ok"}, {"songs", songs.size()}};
+        res.set_content(body.dump(), "application/json");
+    });
+
+    // Readiness: only report ready when there is something to play. Lets an
+    // orchestrator (Kubernetes) keep traffic away from an instance whose
+    // music library is missing or empty.
+    svr.Get("/readyz", [](const httplib::Request&, httplib::Response& res) {
+        if (songs.empty()) {
+            res.status = 503;
+            res.set_content(R"({"status":"not ready","reason":"no songs in library"})", "application/json");
+            return;
+        }
+        res.set_content(R"({"status":"ready"})", "application/json");
+    });
+
+    // Prometheus scrape endpoint.
+    svr.Get("/metrics", [](const httplib::Request&, httplib::Response& res) {
+        size_t queueLen;
+        {
+            std::lock_guard<std::mutex> lock(playlistMutex);
+            queueLen = playlist.size();
+        }
+        res.set_content(metrics.render(songs.size(), queueLen),
+                        "text/plain; version=0.0.4; charset=utf-8");
+    });
+
     // Handle OPTIONS requests for CORS
     svr.Options("/(.*)", [](const httplib::Request&, httplib::Response& res) {
         res.status = 204;  // No content
@@ -184,11 +273,20 @@ int main() {
 
     // Add song to playlist
     svr.Post("/api/playlist/add", [](const httplib::Request& req, httplib::Response& res) {
-        auto json = json::parse(req.body);
-        std::string songId = json["id"];
+        // Malformed bodies used to throw out of the handler; answer 400 instead.
+        std::string songId;
+        try {
+            auto body = json::parse(req.body);
+            songId = body.at("id").get<std::string>();
+        } catch (const std::exception&) {
+            res.status = 400;
+            res.set_content("Invalid request body: expected {\"id\": \"<song id>\"}", "text/plain");
+            return;
+        }
         auto it = std::find_if(songs.begin(), songs.end(),
             [&songId](const Song& song) { return song.id == songId; });
         if (it != songs.end()) {
+            std::lock_guard<std::mutex> lock(playlistMutex);
             addToPlaylist(*it);
             res.set_content("Song added to playlist", "text/plain");
         } else {
@@ -200,6 +298,7 @@ int main() {
     // Get next song (from playlist if available, otherwise from general list)
     svr.Get("/api/songs/next", [](const httplib::Request&, httplib::Response& res) {
         Song nextSong;
+        std::lock_guard<std::mutex> lock(playlistMutex);
         if (!playlist.empty()) {
             nextSong = playlist.front();
             playlist.pop_front();
@@ -244,7 +343,7 @@ int main() {
             [&id](const Song& song) { return song.id == id; });
 
         if (it == songs.end()) {
-            std::cerr << "Song not found: " << id << std::endl;
+            logEvent("warn", "Song not found: " + id, {{"song_id", id}});
             res.status = 404;
             return;
         }
@@ -252,13 +351,15 @@ int main() {
         std::error_code ec;
         auto fileSize = fs::file_size(it->filepath, ec);
         if (ec) {
-            std::cerr << "Cannot open file: " << it->filepath << std::endl;
+            logEvent("error", "Cannot open file: " + it->filepath, {{"song_id", id}});
             res.status = 404;
             return;
         }
 
-        std::cout << "Streaming song: " << it->title << " (ID: " << id
-                  << ", " << fileSize << " bytes)" << std::endl;
+        metrics.incStreams();
+        logEvent("info", "Streaming song: " + it->title + " (ID: " + id + ", " +
+                             std::to_string(fileSize) + " bytes)",
+                 {{"song_id", id}, {"bytes", fileSize}});
 
         res.set_header("Accept-Ranges", "bytes");
         res.set_header("Cache-Control", "public, max-age=3600");
@@ -288,7 +389,8 @@ int main() {
             });
     });
 
-    std::cout << "Server starting on " << config.host << ":" << config.port << "..." << std::endl;
+    logEvent("info", "Server starting on " + config.host + ":" + std::to_string(config.port) + "...",
+             {{"library_size", songs.size()}});
     svr.listen(config.host, config.port);
 
     return 0;

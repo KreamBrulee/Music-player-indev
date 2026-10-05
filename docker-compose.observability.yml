@@ -1,0 +1,81 @@
+# Music player + monitoring (Prometheus, Alertmanager, Grafana) and, with
+# `--profile elk`, centralized logging (Filebeat -> Logstash -> Elasticsearch -> Kibana).
+#
+#   docker compose -f docker-compose.observability.yml up -d --build
+#   docker compose -f docker-compose.observability.yml --profile elk up -d --build
+#
+#   App         http://localhost:3000     Prometheus   http://localhost:9090
+#   Grafana     http://localhost:3001     Alertmanager http://localhost:9093
+#   Kibana      http://localhost:5601  (elk profile)
+services:
+  music-player:
+    build: .
+    image: music-player:latest
+    container_name: music-player
+    ports: ["3000:3000"]
+    volumes:
+      - ./songs:/app/songs:ro
+      # JSON logs on, so Filebeat/Logstash can parse them
+      - ./monitoring/config.observability.json:/app/config.json:ro
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    ports: ["9090:9090"]
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/rules.yml:/etc/prometheus/rules.yml:ro
+    depends_on: [music-player, alertmanager]
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    ports: ["9093:9093"]
+    volumes:
+      - ./monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    ports: ["3001:3000"]
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on: [prometheus]
+
+  # ---------------- ELK (optional, memory-hungry: ~2 GB) ----------------
+  elasticsearch:
+    profiles: [elk]
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.0
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: -Xms512m -Xmx512m
+    ports: ["9200:9200"]
+
+  logstash:
+    profiles: [elk]
+    image: docker.elastic.co/logstash/logstash:8.15.0
+    environment: { LS_JAVA_OPTS: "-Xms256m -Xmx256m" }
+    volumes:
+      - ./monitoring/logstash/pipeline:/usr/share/logstash/pipeline:ro
+    depends_on: [elasticsearch]
+
+  filebeat:
+    profiles: [elk]
+    image: docker.elastic.co/beats/filebeat:8.15.0
+    user: root
+    command: ["filebeat", "-e", "--strict.perms=false"]
+    volumes:
+      - ./monitoring/filebeat/filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on: [logstash]
+
+  kibana:
+    profiles: [elk]
+    image: docker.elastic.co/kibana/kibana:8.15.0
+    environment: { ELASTICSEARCH_HOSTS: "http://elasticsearch:9200" }
+    ports: ["5601:5601"]
+    depends_on: [elasticsearch]

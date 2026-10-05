@@ -1,0 +1,20 @@
+# Live traffic goes to whichever colour `version` selects. Flipping this one
+# field (see switch.sh) is the whole cut-over — and the rollback.
+apiVersion: v1
+kind: Service
+metadata:
+  name: music-player-live
+  namespace: music-player
+spec:
+  selector: { app: music-player-bg, version: blue }
+  ports: [{ name: http, port: 80, targetPort: http }]
+---
+# Always points at green so the candidate can be tested before cut-over.
+apiVersion: v1
+kind: Service
+metadata:
+  name: music-player-green-preview
+  namespace: music-player
+spec:
+  selector: { app: music-player-bg, version: green }
+  ports: [{ name: http, port: 80, targetPort: http }]

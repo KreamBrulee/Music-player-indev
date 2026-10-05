@@ -21,3 +21,11 @@ target_link_libraries(music_player PRIVATE Threads::Threads)
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 9.0)
     target_link_libraries(music_player PRIVATE stdc++fs)
 endif()
+
+# ---- Tests (run with: ctest --test-dir build --output-on-failure) ----
+option(BUILD_TESTING "Build unit tests" ON)
+if(BUILD_TESTING)
+    enable_testing()
+    add_executable(unit_tests tests/test_utils.cpp)
+    add_test(NAME unit_tests COMMAND unit_tests)
+endif()

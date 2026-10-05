@@ -1,0 +1,76 @@
+# SLIs (recording rules) and SLO alerts. Targets are defined in docs/sre/slo.md:
+#   availability SLO 99.5%  -> error budget 0.5% (0.005)
+#   latency SLO: p95 of GET /api/songs under 500 ms
+groups:
+  - name: music-player-sli
+    rules:
+      # Error ratio = server errors (5xx) / all requests, over several windows.
+      # 4xx are the client's fault and count as "good" for availability.
+      - record: job:http_error_ratio:rate5m
+        expr: |
+          sum(rate(http_requests_total{status=~"5.."}[5m]))
+            / clamp_min(sum(rate(http_requests_total[5m])), 1e-9)
+      - record: job:http_error_ratio:rate30m
+        expr: |
+          sum(rate(http_requests_total{status=~"5.."}[30m]))
+            / clamp_min(sum(rate(http_requests_total[30m])), 1e-9)
+      - record: job:http_error_ratio:rate1h
+        expr: |
+          sum(rate(http_requests_total{status=~"5.."}[1h]))
+            / clamp_min(sum(rate(http_requests_total[1h])), 1e-9)
+      - record: job:http_error_ratio:rate6h
+        expr: |
+          sum(rate(http_requests_total{status=~"5.."}[6h]))
+            / clamp_min(sum(rate(http_requests_total[6h])), 1e-9)
+      - record: job:api_songs_latency_p95_seconds:5m
+        expr: |
+          histogram_quantile(0.95,
+            sum by (le) (rate(http_request_duration_seconds_bucket{route="/api/songs"}[5m])))
+
+  - name: music-player-alerts
+    rules:
+      - alert: MusicPlayerDown
+        expr: up{job="music-player"} == 0
+        for: 1m
+        labels: { severity: page }
+        annotations:
+          summary: "Music player is down"
+          description: "Prometheus cannot scrape the server for 1 minute. See docs/sre/runbook.md#service-down"
+
+      - alert: MusicPlayerEmptyLibrary
+        expr: songs_library_size == 0
+        for: 2m
+        labels: { severity: page }
+        annotations:
+          summary: "Music library is empty"
+          description: "Server is up but serves no songs (bad volume mount / music_directory?). See docs/sre/runbook.md#empty-library"
+
+      # Multi-window, multi-burn-rate alerting (Google SRE workbook).
+      # Budget = 0.005. Burning 14.4x for 1h eats 2% of a 30-day budget.
+      - alert: ErrorBudgetFastBurn
+        expr: |
+          job:http_error_ratio:rate1h > (14.4 * 0.005)
+          and job:http_error_ratio:rate5m > (14.4 * 0.005)
+        for: 2m
+        labels: { severity: page }
+        annotations:
+          summary: "Error budget burning fast (14.4x)"
+          description: "At this rate the 30-day availability budget is gone in ~2 days. See docs/sre/runbook.md#high-error-rate"
+
+      - alert: ErrorBudgetSlowBurn
+        expr: |
+          job:http_error_ratio:rate6h > (6 * 0.005)
+          and job:http_error_ratio:rate30m > (6 * 0.005)
+        for: 15m
+        labels: { severity: ticket }
+        annotations:
+          summary: "Error budget burning steadily (6x)"
+          description: "Sustained elevated 5xx rate. Investigate before the budget is exhausted."
+
+      - alert: ApiSongsLatencySLOViolation
+        expr: job:api_songs_latency_p95_seconds:5m > 0.5
+        for: 10m
+        labels: { severity: ticket }
+        annotations:
+          summary: "p95 latency of /api/songs above 500 ms"
+          description: "Latency SLO breached. See docs/sre/runbook.md#high-latency"
