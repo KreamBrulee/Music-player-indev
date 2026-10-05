@@ -14,3 +14,13 @@ CB.sh
 deploy.sh
 deploy_systemd.sh
 setup.sh
+k8s
+monitoring
+docs
+tests
+api-tests
+ci
+.github
+Jenkinsfile
+.gitlab-ci.yml
+docker-compose.observability.yml

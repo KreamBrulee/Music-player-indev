@@ -132,6 +132,7 @@ won't stop the server from starting.
 | `max_history_size`      | `10`        | Cap on the server-side play history (`/api/songs/previous`).            |
 | `read_timeout` / `write_timeout` | `15` (seconds) | HTTP socket timeouts.                                          |
 | `keep_alive_max_count`  | `20`        | Max requests per keep-alive connection.                                 |
+| `log_format`            | `text`      | `text` (human-readable) or `json` (one JSON object per line — what the ELK stack in [docs/observability.md](docs/observability.md) ingests). |
 | `base_url`              | `""`        | Only needed if the frontend is ever served from a different origin than this backend (e.g. frontend on a CDN, backend as a separate API server on the cloud). Leave empty for the normal setup, where this server serves both the frontend and the API together. |
 
 ## Project Structure
@@ -145,7 +146,13 @@ music-player/
 ├── ansible/            deploy this to a remote/home host over SSH
 ├── CMakeLists.txt     build configuration
 ├── config.json         server settings (see Configuration below)
-├── src/main.cpp       the server
+├── src/               the server (main.cpp) + testable helpers (utils.hpp, metrics.hpp)
+├── tests/             unit tests (ctest) and end-to-end smoke test
+├── api-tests/         Maven/JUnit black-box API tests
+├── Jenkinsfile, .gitlab-ci.yml, .github/workflows/   CI/CD pipelines
+├── k8s/               Kubernetes manifests (rolling + blue/green)
+├── monitoring/        Prometheus, Alertmanager, Grafana, ELK configs
+├── docs/              CI/CD, Kubernetes, observability, SRE docs
 ├── include/           vendored headers (cpp-httplib, nlohmann/json)
 ├── public/            the web UI (index.html, style.css, app.js)
 └── songs/             your music library
@@ -162,7 +169,30 @@ configured port (3000 by default):
 | GET    | `/api/songs/{id}/play`   | Stream a song (supports HTTP range requests) |
 | GET    | `/api/songs/next`        | Advance to the next song                     |
 | GET    | `/api/songs/previous`    | Go back to the previous song                 |
-| POST   | `/api/playlist/add`      | Add a song to the play queue (`{"id": "..."}`) |
+| POST   | `/api/playlist/add`      | Add a song to the play queue (`{"id": "..."}`; `400` on a malformed body) |
+| GET    | `/healthz`               | Liveness probe — process is serving          |
+| GET    | `/readyz`                | Readiness probe — `503` when the library is empty |
+| GET    | `/metrics`               | Prometheus metrics                           |
+
+Every response carries an `X-Request-ID` header (an incoming one is reused).
+
+## DevOps: CI/CD, Kubernetes, Monitoring & SRE
+
+| Topic | Where |
+|---|---|
+| Tests (`ctest`, `tests/smoke.sh`, Maven `api-tests/`) and pipelines (Jenkins, GitLab CI, GitHub Actions) incl. SAST, secret and image scanning | [docs/ci-cd.md](docs/ci-cd.md) |
+| Kubernetes manifests, rolling update and blue/green deployment | [docs/kubernetes.md](docs/kubernetes.md) |
+| Metrics, JSON logs, Prometheus + Grafana + Alertmanager, ELK | [docs/observability.md](docs/observability.md) |
+| SLOs & alerting, runbook, postmortem, incident drill | [docs/sre/](docs/sre/) |
+
+Quick start:
+
+```bash
+cmake -B build -S . && cmake --build build -j && ctest --test-dir build --output-on-failure && tests/smoke.sh
+docker compose -f docker-compose.observability.yml up -d --build   # app + Prometheus + Grafana (:3001)
+```
+
+Contributions welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Troubleshooting
 

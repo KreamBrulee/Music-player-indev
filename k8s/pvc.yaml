@@ -1,0 +1,14 @@
+# Holds the music library. Copy songs in with:
+#   kubectl -n music-player cp ./songs/. <pod>:/app/songs/
+# (RWO is fine on a single-node cluster such as minikube/kind; on a
+# multi-node cluster use a ReadOnlyMany-capable storage class.)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: music-library
+  namespace: music-player
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 2Gi

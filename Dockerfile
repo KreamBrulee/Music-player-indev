@@ -11,7 +11,8 @@ COPY CMakeLists.txt ./
 COPY include/ ./include/
 COPY src/ ./src/
 
-RUN cmake -B build -S . -DCMAKE_BUILD_TYPE=Release \
+# tests/ is not copied into the image, so skip the unit-test target here (CI runs it).
+RUN cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF \
     && cmake --build build -j"$(nproc)"
 
 # ---- runtime stage: slim image with just the binary + frontend + config ----
@@ -40,6 +41,6 @@ USER musicplayer
 EXPOSE 3000
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD curl -sf http://localhost:3000/api/songs || exit 1
+    CMD curl -sf http://localhost:3000/healthz || exit 1
 
 ENTRYPOINT ["./build/music_player"]

@@ -1,0 +1,26 @@
+# Ships the music-player container's JSON log lines to Logstash.
+# Needs the Docker socket + container log dir (see docker-compose.observability.yml).
+filebeat.autodiscover:
+  providers:
+    - type: docker
+      templates:
+        - condition:
+            contains:
+              docker.container.name: music-player
+          config:
+            - type: container
+              paths:
+                - /var/lib/docker/containers/${data.docker.container.id}/*.log
+
+processors:
+  # The app writes one JSON object per line; lift its fields to the top level.
+  - decode_json_fields:
+      fields: ["message"]
+      target: ""
+      overwrite_keys: true
+      add_error_key: false
+
+output.logstash:
+  hosts: ["logstash:5044"]
+
+logging.level: warning
