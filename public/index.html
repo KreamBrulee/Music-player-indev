@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NOVA // ARCADE MUSIC</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="stars" id="stars"></div>
+    <div class="bg-grid"></div>
+
+    <div class="app" id="view-app">
+        <header>
+            <div class="brand">
+                <div class="logo"></div>
+                <div>
+                    <h1 class="title">★ NOVA ★</h1>
+                    <div class="sub">ARCADE MUSIC // LOCAL LIBRARY</div>
+                </div>
+            </div>
+            <div class="search-wrap">
+                <input id="search" type="text" placeholder="FILTER LIBRARY... (/)" />
+            </div>
+        </header>
+
+        <div class="now-playing">
+            <div class="cover" id="cover"></div>
+            <div class="np-info">
+                <div class="np-status" id="np-status"><span class="dot"></span><span id="np-status-text">STANDBY</span></div>
+                <div class="np-title" id="np-title-wrap"><span class="scroll" id="np-title-text">NO TRACK LOADED</span></div>
+                <div class="np-artist" id="now-artist">&gt; PICK A TRACK &lt;</div>
+                <div class="viz" id="visualizer"></div>
+                <div class="progress-wrap">
+                    <div class="progress" id="progress-track">
+                        <div class="progress-bar" id="progress-bar"></div>
+                    </div>
+                    <div class="time-row">
+                        <span id="time-current">0:00</span>
+                        <span id="time-total">0:00</span>
+                    </div>
+                </div>
+                <div class="controls-row">
+                    <div class="ctrl-group">
+                        <button class="btn" id="btn-shuffle" onclick="toggleShuffle()" title="Shuffle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M16 3h5v5"/><path d="M4 20 21 3"/><path d="M21 16v5h-5"/><path d="m15 15 6 6"/><path d="M4 4l5 5"/></svg></button>
+                        <button class="btn" onclick="previousSong()" title="Previous"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h2v14H6zM9.5 12l10-7v14z"/></svg></button>
+                    </div>
+                    <div class="ctrl-group">
+                        <button class="btn btn-play" id="play-pause" onclick="togglePlay()" title="Play/Pause"><svg id="icon-play" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></button>
+                    </div>
+                    <div class="ctrl-group">
+                        <button class="btn" onclick="nextSong()" title="Next"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 5h2v14h-2zM14.5 12l-10 7V5z"/></svg></button>
+                        <button class="btn" id="btn-repeat" onclick="toggleRepeat()" title="Repeat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></svg></button>
+                    </div>
+                    <div class="volume">
+                        <button class="btn" id="btn-mute" onclick="toggleMute()" title="Mute"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M11 5 6 9H2v6h4l5 4z"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg></button>
+                        <input type="range" id="vol" min="0" max="100" value="60" />
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="panel queue-panel">
+            <h2>▶ UP NEXT</h2>
+            <div id="panel-queue" class="list list-row"><div class="empty">QUEUE IS EMPTY</div></div>
+        </div>
+
+        <section>
+            <div class="section-head">
+                <h2>&gt;&gt; ALL SONGS &lt;&lt;</h2>
+                <div class="count"><span id="song-count">0</span> TRACKS &middot; <span class="kbd">SPACE</span> PLAY/PAUSE &middot; <span class="kbd">/</span> FIND</div>
+            </div>
+            <div id="song-list" class="song-grid"><div class="empty" style="grid-column:1/-1">LOADING...</div></div>
+        </section>
+    </div>
+
+    <div class="toast" id="toast"></div>
+    <audio id="audio-player" class="hidden" preload="auto"></audio>
+
+    <script src="/config.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,68 @@
+---
+# Deploys the master branch to the EC2 instance: installs Docker, clones
+# the repo, builds the image on the instance, and starts it with compose.
+#
+#   ansible-playbook -i inventory-ec2.ini deploy-ec2.yml
+#
+# Ubuntu ships with Python, so the normal modules work here (unlike the
+# Windows playbook, which is limited to raw).
+
+- name: Deploy music player to EC2
+  hosts: ec2_host
+  become: true
+
+  vars:
+    app_dir: /opt/music-player
+    repo_url: https://github.com/KreamBrulee/Music-player-indev
+    repo_branch: master
+    deploy_user: ubuntu
+
+  tasks:
+    - name: Install Docker and git
+      ansible.builtin.apt:
+        name:
+          - docker.io
+          - docker-compose-v2
+          - git
+          - curl
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Start and enable Docker
+      ansible.builtin.service:
+        name: docker
+        state: started
+        enabled: true
+
+    - name: Let the deploy user run docker without sudo
+      ansible.builtin.user:
+        name: "{{ deploy_user }}"
+        groups: docker
+        append: true
+
+    - name: Clone or update the repo
+      ansible.builtin.git:
+        repo: "{{ repo_url }}"
+        dest: "{{ app_dir }}"
+        version: "{{ repo_branch }}"
+        force: false
+
+    - name: Build the image on the instance
+      ansible.builtin.command: docker build -t music-player:latest .
+      args:
+        chdir: "{{ app_dir }}"
+
+    - name: Start the container (uses the image built above)
+      ansible.builtin.command: docker compose up -d
+      args:
+        chdir: "{{ app_dir }}"
+
+    - name: Verify the API responds
+      ansible.builtin.uri:
+        url: http://localhost:3000/api/songs
+        status_code: 200
+      register: health
+      retries: 10
+      delay: 3
+      until: health.status == 200

@@ -1,0 +1,16 @@
+.git
+.gitignore
+.DS_Store
+build
+
+# real music library — bind-mounted at runtime, never baked into the image
+songs
+
+cmake_log.txt
+vcpkg-init.cmd
+.vscode
+*.md
+CB.sh
+deploy.sh
+deploy_systemd.sh
+setup.sh

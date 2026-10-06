@@ -1,53 +1,74 @@
-# 🚀 Quick Deployment Guide
+# Quick Deployment Guide
 
-## TL;DR - Quick Start:
+Works on macOS and Linux. `deploy.sh` detects your OS and installs what it
+needs (Homebrew + CMake on macOS, apt + build-essential on Linux).
 
-### First Time Setup (Production - Recommended):
-```bash
-# 1. Make scripts executable
-chmod +x deploy.sh deploy_systemd.sh
+## Quick Start
 
-# 2. Build and setup service
-./deploy.sh  # Build the project (will fail to start, that's OK)
-# Press Ctrl+C after it starts
+Build and run in the foreground (good for testing):
 
-# 3. Setup systemd service (runs in background, auto-restarts)
-sudo ./deploy_systemd.sh
-
-# Done! Service is running and will auto-start on reboot
-```
-
-### Quick Manual Run (Testing):
 ```bash
 chmod +x deploy.sh
-./deploy.sh  # Builds and runs (foreground)
+./deploy.sh
 # Press Ctrl+C to stop
 ```
 
-## Detailed Deployment Options:
+## Deployment Options
 
-### Option 1: Systemd Service (Recommended for Production) ✅
+### Option 1: Direct Run
 
-**Pros:**
-- Runs in background
-- Auto-starts on server reboot
-- Auto-restarts if crashes
-- Easy to manage
-- Logs to systemd journal
+Simple, shows output directly, stops when the terminal closes or you press
+Ctrl+C. Good for testing, not for leaving the server running long-term.
 
-**Steps:**
+```bash
+chmod +x deploy.sh
+./deploy.sh
+```
+
+### Option 2: Background with nohup
+
+Runs in the background and survives closing the terminal. No auto-restart on
+crash — you restart it manually if it dies. Works the same on macOS and
+Linux.
+
+```bash
+# Build first
+chmod +x deploy.sh
+./deploy.sh
+# Press Ctrl+C once it starts
+
+# Then run in the background
+nohup ./build/music_player > music_player.log 2>&1 &
+
+# Check if it's running
+ps aux | grep music_player
+
+# Stop it
+pkill music_player
+
+# View logs
+tail -f music_player.log
+```
+
+### Option 3: systemd Service (Linux only)
+
+Runs in the background, auto-starts on boot, and auto-restarts if it
+crashes. There's no macOS equivalent set up in this repo — use the nohup
+approach above on macOS instead.
+
 ```bash
 # Step 1: Build the project
 chmod +x deploy.sh
 ./deploy.sh
-# Press Ctrl+C after it starts (or wait for error)
+# Press Ctrl+C after it starts
 
-# Step 2: Setup systemd service
+# Step 2: Install the systemd service
 chmod +x deploy_systemd.sh
 sudo ./deploy_systemd.sh
 ```
 
-**Management Commands:**
+**Management commands:**
+
 ```bash
 # Check if running
 sudo systemctl status music-player
@@ -61,190 +82,154 @@ sudo journalctl -u music-player -n 100
 # Restart (after code changes)
 sudo systemctl restart music-player
 
-# Stop
+# Stop / start
 sudo systemctl stop music-player
-
-# Start
 sudo systemctl start music-player
 
 # Disable auto-start
 sudo systemctl disable music-player
 ```
 
-### Option 2: Direct Run (Good for Testing)
+### Option 4: Docker
 
-**Pros:**
-- Simple
-- See output directly
-- Easy to stop (Ctrl+C)
+Runs in a container — no local compiler/CMake install needed at all.
 
-**Cons:**
-- Stops when you close terminal
-- Doesn't auto-restart
-- Not suitable for production
-
-**Steps:**
 ```bash
-chmod +x deploy.sh
-./deploy.sh
+docker compose up -d --build
 ```
 
-### Option 3: Run in Background with nohup
+Point it at your real music library by editing the volume line in
+`docker-compose.yml` (`./songs:/app/songs` → `/path/to/your/music:/app/songs`)
+before running. See the [Docker section](README.md#docker) in the README
+for permissions notes, editing `config.json` without rebuilding, and plain
+`docker run` usage.
 
-**Pros:**
-- Runs in background
-- Survives terminal close
-
-**Cons:**
-- No auto-restart
-- Manual management
-
-**Steps:**
 ```bash
-# Build first
-chmod +x deploy.sh
-./deploy.sh
-# Press Ctrl+C after build completes
-
-# Then run in background
-nohup ./build/music_player > music_player.log 2>&1 &
-
-# Check if running
-ps aux | grep music_player
-
-# Stop it
-pkill music_player
-
-# View logs
-tail -f music_player.log
+docker compose logs -f     # logs
+docker compose down        # stop
 ```
 
-## What About setup.sh? 🤔
+## What About setup.sh?
 
-The old `setup.sh` script:
-- Starts **two** servers (Python + C++)
-- Python server on port 8000 was for serving `index.html`
-- **No longer needed!** The C++ server now serves `index.html` directly
+The old `setup.sh` script starts two servers — a Python HTTP server for the
+frontend on port 8000, plus the C++ backend. It's no longer needed: the C++
+server now serves the frontend (`public/index.html`) directly. Don't use it
+for deployment.
 
-**Don't use `setup.sh` for deployment** - it's outdated and starts an unnecessary Python server.
+## After Code Changes
 
-## After Code Changes:
+**If using systemd (Linux):**
 
-### If using systemd:
 ```bash
-# 1. Rebuild
 cd /path/to/music-player
-mkdir -p build
-cd build
+mkdir -p build && cd build
 cmake ..
 make -j$(nproc)
 cd ..
 
-# 2. Restart service
 sudo systemctl restart music-player
-
-# 3. Check status
 sudo systemctl status music-player
 ```
 
-### If running manually:
-```bash
-# 1. Stop current process (Ctrl+C or pkill)
-pkill music_player
+**If running manually (macOS or Linux):**
 
-# 2. Rebuild and run
+```bash
+pkill music_player
 ./deploy.sh
 ```
 
-## File Checklist Before Deployment:
+## File Checklist Before Deployment
 
 ```
 music-player/
-├── deploy.sh              ✅ New deployment script
-├── deploy_systemd.sh      ✅ Systemd setup script
-├── setup.sh              ❌ Old script (ignore)
-├── index.html            ✅ Must be in root
-├── CMakeLists.txt        ✅ Build configuration
-├── build/                ✅ Created by deploy.sh
-│   └── music_player      ✅ Created after build
+├── deploy.sh              build and run script (macOS/Linux)
+├── deploy_systemd.sh      systemd install script (Linux only)
+├── Dockerfile              multi-stage container build
+├── docker-compose.yml      container build + run, with songs/ mounted
+├── setup.sh                old script, do not use
+├── public/                 the web UI (index.html, style.css, app.js)
+├── CMakeLists.txt          build configuration
+├── build/                  created by deploy.sh
+│   └── music_player        created after building
 ├── src/
-│   └── main.cpp          ✅ Updated server code
-├── songs/                ✅ Must contain .mp3 files
-│   ├── song1.mp3
-│   ├── song2.mp3
-│   └── ...
-└── include/              ✅ Headers (if any)
+│   └── main.cpp             server source
+├── songs/                  must contain your music files
+└── include/                 vendored headers
 ```
 
-## Troubleshooting:
+## Troubleshooting
 
-### Build fails?
+### Build fails
+
 ```bash
 # Check if CMakeLists.txt exists
 ls -la CMakeLists.txt
 
-# Check for compiler
-g++ --version
+# Check for a compiler
+c++ --version
 
 # Install dependencies
+# macOS:
+brew install cmake
+xcode-select --install   # provides clang/make
+
+# Linux:
 sudo apt update
 sudo apt install build-essential cmake g++
 ```
 
-### Service won't start?
+### Server won't start
+
 ```bash
-# Check logs
+# Check logs (systemd, Linux)
 sudo journalctl -u music-player -n 50
 
-# Check if port is in use
-sudo netstat -tlnp | grep 3000
+# Check if the port is already in use (macOS and Linux)
+lsof -i :3000
 
 # Kill any existing process
-sudo pkill music_player
-sudo systemctl restart music-player
+pkill music_player
 ```
 
-### No songs showing?
+### No songs showing
+
 ```bash
-# Check songs directory
+# Check the songs directory
 ls -la songs/
 
 # Check permissions
 chmod +r songs/*.mp3
-
-# Restart service
-sudo systemctl restart music-player
 ```
 
-### Can't access from browser?
-```bash
-# Check if server is running
-sudo netstat -tlnp | grep 3000
+### Can't access from a browser
 
-# Check firewall
+```bash
+# Check the server is running and listening
+lsof -i :3000
+
+# Check the firewall
+# Linux (ufw):
 sudo ufw status
 sudo ufw allow 3000/tcp
+# macOS (Application Firewall, only relevant if it's enabled):
+sudo /usr/libexec/ApplicationFirewall/socketfilterfw --getglobalstate
 
 # Test locally
 curl http://localhost:3000/api/songs
-
-# Test externally
-curl http://music.potassulfide.com/api/songs
 ```
 
-## Port Information:
+## Port Information
 
-- **Port 3000**: C++ music player server (serves both API and frontend)
+- **Port 3000** — the C++ server, serving both the API and the frontend:
   - Frontend: `http://your-server:3000/`
   - API: `http://your-server:3000/api/songs`
   - Streaming: `http://your-server:3000/api/songs/{id}/play`
+- **Port 8000** — used only by the old `setup.sh`; not used otherwise.
 
-- **Port 8000**: ~~Python server~~ (no longer used/needed!)
+## Summary
 
-## Summary:
-
-**For Production:** Use `deploy_systemd.sh` ✅  
-**For Testing:** Use `deploy.sh` ✅  
-**Old `setup.sh`:** Ignore it ❌  
-
-Your music player now runs as a single server on port 3000, serving both the frontend and API! 🎵
+- For quick testing: `./deploy.sh`
+- For a background process: `nohup ./build/music_player > music_player.log 2>&1 &`
+- For a managed, auto-restarting service on Linux: `sudo ./deploy_systemd.sh`
+- For a container: `docker compose up -d --build`
+- Ignore `setup.sh`
