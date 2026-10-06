@@ -41,6 +41,22 @@ resource "aws_security_group" "app" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
+  ingress {
+    description = "HTTP (ACME challenge and redirect to HTTPS)"
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    description = "HTTPS"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
   egress {
     from_port   = 0
     to_port     = 0
@@ -75,6 +91,16 @@ resource "aws_instance" "app" {
     swapon /swapfile
     echo '/swapfile none swap sw 0 0' >> /etc/fstab
   EOF
+
+  tags = {
+    Name = "music-player"
+  }
+}
+
+# Fixed public IP. Survives stop/start and keeps the domain's DNS record valid.
+resource "aws_eip" "app" {
+  domain   = "vpc"
+  instance = aws_instance.app.id
 
   tags = {
     Name = "music-player"
