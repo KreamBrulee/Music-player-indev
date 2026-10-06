@@ -16,7 +16,8 @@
     - name: Install Java, Docker, git, and Ansible
       ansible.builtin.apt:
         name:
-          - openjdk-21-jre-headless
+          - openjdk-21-jdk-headless
+          - maven
           - docker.io
           - docker-compose-v2
           - git

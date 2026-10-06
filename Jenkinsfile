@@ -62,7 +62,10 @@ pipeline {
             steps {
                 sh '''
                     docker run -d --name ${CONTAINER} -p ${HOST_PORT}:3000 ${IMAGE}:${BUILD_NUMBER}
-                    sleep 3
+                    for i in $(seq 1 20); do
+                        curl -sf http://localhost:${HOST_PORT}/api/songs >/dev/null && break
+                        sleep 1
+                    done
                     cd api-tests && mvn -B test -Dapi.baseUrl=http://localhost:${HOST_PORT}
                 '''
             }
