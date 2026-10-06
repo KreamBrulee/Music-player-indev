@@ -27,6 +27,15 @@
 
   <build>
     <plugins>
+      <!-- Pinned so compilation targets Java 21 regardless of the Maven
+           version on the agent. Without this, older Maven defaults to
+           compiler-plugin 3.1, which ignores the release property and fails
+           with "Source option 5 is no longer supported". -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>3.13.0</version>
+      </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-surefire-plugin</artifactId>
