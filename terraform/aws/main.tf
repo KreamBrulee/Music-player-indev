@@ -1,0 +1,82 @@
+# EC2 instance for the music player: Ubuntu 24.04, SSH from admin_cidr only,
+# app port open to the world. Ansible configures Docker and deploys the app.
+
+data "aws_ami" "ubuntu" {
+  most_recent = true
+  owners      = ["099720109477"] # Canonical
+
+  filter {
+    name   = "name"
+    values = ["ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-amd64-server-*"]
+  }
+
+  filter {
+    name   = "virtualization-type"
+    values = ["hvm"]
+  }
+}
+
+resource "aws_key_pair" "deploy" {
+  key_name   = "music-player-deploy"
+  public_key = file(pathexpand(var.public_key_path))
+}
+
+resource "aws_security_group" "app" {
+  name        = "music-player"
+  description = "SSH from admin only, app port public"
+
+  ingress {
+    description = "SSH (Ansible and admin)"
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = [var.admin_cidr]
+  }
+
+  ingress {
+    description = "Music player API and frontend"
+    from_port   = var.app_port
+    to_port     = var.app_port
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "music-player"
+  }
+}
+
+resource "aws_instance" "app" {
+  ami                    = data.aws_ami.ubuntu.id
+  instance_type          = var.instance_type
+  key_name               = aws_key_pair.deploy.key_name
+  vpc_security_group_ids = [aws_security_group.app.id]
+
+  root_block_device {
+    volume_size = 20
+    volume_type = "gp3"
+  }
+
+  # Swap before anything else runs, so the 1 GiB instance can survive the
+  # C++ compile during the image build.
+  user_data = <<-EOF
+    #!/bin/bash
+    set -e
+    fallocate -l ${var.swap_size_gb}G /swapfile
+    chmod 600 /swapfile
+    mkswap /swapfile
+    swapon /swapfile
+    echo '/swapfile none swap sw 0 0' >> /etc/fstab
+  EOF
+
+  tags = {
+    Name = "music-player"
+  }
+}

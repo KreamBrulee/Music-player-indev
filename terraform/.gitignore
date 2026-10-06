@@ -1,0 +1,9 @@
+# Files produced by running terraform (init / plan / apply)
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+*.tfplan
+tfplan
+crash.log
+crash.*.log
