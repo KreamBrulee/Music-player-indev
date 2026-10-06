@@ -1,0 +1,82 @@
+---
+# Deploys the monitoring stack:
+#   - app hosts get node_exporter + cadvisor (metrics producers)
+#   - the monitoring host (Jenkins box) gets Prometheus + Grafana
+#
+#   ansible-playbook -i inventory-ec2.ini -i inventory-jenkins.ini monitoring.yml
+#
+# app_scrape_targets is the list of app private IPs Prometheus scrapes.
+# Default is the current app instance; override with --extra-vars if the app
+# IP changes or more instances are added:
+#   --extra-vars '{"app_scrape_targets":["172.31.43.12","172.31.x.y"]}'
+
+- name: Exporters on app hosts
+  hosts: ec2_host
+  become: true
+
+  vars:
+    monitoring_dir: /opt/monitoring
+
+  tasks:
+    - name: Create the monitoring dir
+      ansible.builtin.file:
+        path: "{{ monitoring_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Copy the exporters compose file
+      ansible.builtin.copy:
+        src: ../monitoring/exporters-compose.yml
+        dest: "{{ monitoring_dir }}/docker-compose.yml"
+        mode: "0644"
+
+    - name: Start the exporters
+      ansible.builtin.command: docker compose up -d
+      args:
+        chdir: "{{ monitoring_dir }}"
+
+- name: Prometheus and Grafana on the monitoring host
+  hosts: jenkins_host
+  become: true
+
+  vars:
+    monitoring_dir: /opt/monitoring
+    grafana_admin_password: admin
+    app_scrape_targets:
+      - 172.31.43.12
+
+  tasks:
+    - name: Create the monitoring dir tree
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0755"
+      loop:
+        - "{{ monitoring_dir }}"
+        - "{{ monitoring_dir }}/prometheus"
+
+    - name: Copy the compose file
+      ansible.builtin.copy:
+        src: ../monitoring/docker-compose.yml
+        dest: "{{ monitoring_dir }}/docker-compose.yml"
+        mode: "0644"
+
+    - name: Copy the Grafana provisioning tree
+      ansible.builtin.copy:
+        src: ../monitoring/grafana
+        dest: "{{ monitoring_dir }}/"
+        mode: "0644"
+        directory_mode: "0755"
+
+    - name: Render the Prometheus config with the app scrape targets
+      ansible.builtin.template:
+        src: ../monitoring/prometheus/prometheus.yml.j2
+        dest: "{{ monitoring_dir }}/prometheus/prometheus.yml"
+        mode: "0644"
+
+    - name: Start Prometheus and Grafana
+      ansible.builtin.command: docker compose up -d
+      args:
+        chdir: "{{ monitoring_dir }}"
+      environment:
+        GRAFANA_ADMIN_PASSWORD: "{{ grafana_admin_password }}"

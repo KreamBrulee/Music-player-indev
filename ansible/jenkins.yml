@@ -1,0 +1,77 @@
+---
+# Installs Jenkins on the Jenkins instance from terraform/jenkins: Java,
+# Jenkins itself from the official apt repo, Docker (so pipelines can build
+# the image), and Ansible (so the deploy stage can run deploy-ec2.yml).
+#
+#   ansible-playbook -i inventory-jenkins.ini jenkins.yml
+#
+# Plugins are installed through the Jenkins UI after first login. See the
+# list in ansible/README.md.
+
+- name: Install Jenkins
+  hosts: jenkins_host
+  become: true
+
+  tasks:
+    - name: Install Java, Docker, git, and Ansible
+      ansible.builtin.apt:
+        name:
+          - openjdk-21-jre-headless
+          - docker.io
+          - docker-compose-v2
+          - git
+          - curl
+          - ansible
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Add the Jenkins apt signing key
+      ansible.builtin.get_url:
+        url: https://pkg.jenkins.io/debian-stable/jenkins.io-2026.key
+        dest: /usr/share/keyrings/jenkins-keyring.asc
+        mode: "0644"
+        force: true # Jenkins rotates this key; always refresh so a stale one is replaced
+
+    - name: Add the Jenkins apt repository
+      ansible.builtin.apt_repository:
+        repo: "deb [signed-by=/usr/share/keyrings/jenkins-keyring.asc] https://pkg.jenkins.io/debian-stable binary/"
+        state: present
+        filename: jenkins
+
+    - name: Install Jenkins
+      ansible.builtin.apt:
+        name: jenkins
+        state: present
+        update_cache: true
+
+    - name: Let the jenkins user run docker
+      ansible.builtin.user:
+        name: jenkins
+        groups: docker
+        append: true
+
+    - name: Start and enable Docker
+      ansible.builtin.service:
+        name: docker
+        state: started
+        enabled: true
+
+    - name: Start and enable Jenkins
+      ansible.builtin.service:
+        name: jenkins
+        state: restarted
+        enabled: true
+
+    - name: Wait for Jenkins to answer on 8080
+      ansible.builtin.wait_for:
+        port: 8080
+        timeout: 180
+
+    - name: Show where to finish setup
+      ansible.builtin.debug:
+        msg: >-
+          Open http://{{ inventory_hostname }}:8080. The initial admin password
+          is on the host: ssh ubuntu@{{ inventory_hostname }} 'sudo cat
+          /var/lib/jenkins/secrets/initialAdminPassword'. Then install the
+          plugins listed in ansible/README.md.

@@ -26,11 +26,11 @@ resource "aws_security_group" "app" {
   description = "SSH from admin only, app port public"
 
   ingress {
-    description = "SSH (Ansible and admin)"
+    description = "SSH from admin and from the Jenkins host (for CI deploys)"
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
-    cidr_blocks = [var.admin_cidr]
+    cidr_blocks = [var.admin_cidr, var.ci_cidr]
   }
 
   ingress {
@@ -55,6 +55,22 @@ resource "aws_security_group" "app" {
     to_port     = 443
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    description = "node_exporter (Prometheus scrape, VPC only)"
+    from_port   = 9100
+    to_port     = 9100
+    protocol    = "tcp"
+    cidr_blocks = [var.monitoring_cidr]
+  }
+
+  ingress {
+    description = "cAdvisor (Prometheus scrape, VPC only)"
+    from_port   = 8080
+    to_port     = 8080
+    protocol    = "tcp"
+    cidr_blocks = [var.monitoring_cidr]
   }
 
   egress {
@@ -91,6 +107,14 @@ resource "aws_instance" "app" {
     swapon /swapfile
     echo '/swapfile none swap sw 0 0' >> /etc/fstab
   EOF
+
+  # most_recent AMI drifts as Canonical publishes new images; without this a
+  # later apply would destroy and recreate the running instance just to move
+  # to a newer AMI. Pin against that; recreate deliberately if you want a
+  # fresh base image.
+  lifecycle {
+    ignore_changes = [ami]
+  }
 
   tags = {
     Name = "music-player"

@@ -32,3 +32,15 @@ variable "swap_size_gb" {
   type        = number
   default     = 2
 }
+
+variable "monitoring_cidr" {
+  description = "CIDR allowed to scrape node_exporter (9100) and cAdvisor (8080). Defaults to the VPC so exporters stay internal, never internet-exposed."
+  type        = string
+  default     = "172.31.0.0/16"
+}
+
+variable "ci_cidr" {
+  description = "Jenkins host, allowed to SSH in so its pipeline can run the deploy playbook. Defaults to the Jenkins Elastic IP from terraform/jenkins."
+  type        = string
+  default     = "13.50.73.77/32"
+}

@@ -65,6 +65,22 @@ resource "aws_security_group" "jenkins" {
     cidr_blocks = local.github_hook_cidrs
   }
 
+  ingress {
+    description = "Grafana UI (admin)"
+    from_port   = 3000
+    to_port     = 3000
+    protocol    = "tcp"
+    cidr_blocks = [var.admin_cidr]
+  }
+
+  ingress {
+    description = "Prometheus UI (admin)"
+    from_port   = 9090
+    to_port     = 9090
+    protocol    = "tcp"
+    cidr_blocks = [var.admin_cidr]
+  }
+
   egress {
     from_port   = 0
     to_port     = 0
@@ -97,6 +113,12 @@ resource "aws_instance" "jenkins" {
     swapon /swapfile
     echo '/swapfile none swap sw 0 0' >> /etc/fstab
   EOF
+
+  # Pin against AMI drift so a later apply doesn't destroy/recreate Jenkins
+  # just because Canonical published a newer image.
+  lifecycle {
+    ignore_changes = [ami]
+  }
 
   tags = {
     Name = "jenkins"
