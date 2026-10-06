@@ -1,5 +1,5 @@
 // CI/CD for Nova. On every push: build the image, smoke-test the running
-// container, run the API tests (once api-tests/pom.xml exists). On Nova_dev,
+// container, run the API tests (once api-tests/pom.xml exists). On master,
 // also deploy to the EC2 app instance with Ansible.
 //
 // Jenkins setup this expects:
@@ -24,7 +24,7 @@ pipeline {
         // Smoke-test host port, off 3000 so it never clashes with anything
         // else on the agent (Grafana also uses 3000 on the monitoring host).
         HOST_PORT = '3100'
-        DEPLOY_BRANCH = 'Nova_dev'
+        DEPLOY_BRANCH = 'master'
     }
 
     stages {

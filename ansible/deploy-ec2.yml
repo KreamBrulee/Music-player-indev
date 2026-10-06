@@ -1,5 +1,5 @@
 ---
-# Deploys the Nova_dev branch to the EC2 instance: installs Docker, clones
+# Deploys the master branch to the EC2 instance: installs Docker, clones
 # the repo, builds the image on the instance, and starts it with compose.
 #
 #   ansible-playbook -i inventory-ec2.ini deploy-ec2.yml
@@ -14,7 +14,7 @@
   vars:
     app_dir: /opt/music-player
     repo_url: https://github.com/KreamBrulee/Music-player-indev
-    repo_branch: Nova_dev
+    repo_branch: master
     deploy_user: ubuntu
 
   tasks:

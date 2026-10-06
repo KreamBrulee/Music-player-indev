@@ -33,7 +33,7 @@ run this yourself, in your own terminal. Don't paste the password anywhere
 else (including to Claude/an AI assistant) — it'd end up sitting in that
 tool's logs.
 
-This pulls the `Nova_dev` branch, builds the image, starts the container,
+This pulls the `master` branch, builds the image, starts the container,
 and checks `/api/songs` responds before finishing.
 
 ### Why the build and the container start are separate steps

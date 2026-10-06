@@ -74,7 +74,7 @@ ssh ubuntu@<jenkins-ip> 'sudo cat /var/lib/jenkins/secrets/initialAdminPassword'
 
 Open `http://<jenkins-ip>:8080`, paste it, then install: **Git, GitHub,
 Pipeline, SSH Agent**. Create a Pipeline job from this repo (branch
-`Nova_dev`, script path `Jenkinsfile`) and enable "GitHub hook trigger for
+`master`, script path `Jenkinsfile`) and enable "GitHub hook trigger for
 GITScm polling".
 
 ### GitHub webhook
@@ -97,7 +97,7 @@ both admin-IP-only.
 
 ## What the pipeline does
 
-Push to `Nova_dev` → GitHub webhook → Jenkins: build the image, smoke-test
+Push to `master` → GitHub webhook → Jenkins: build the image, smoke-test
 it, run API tests (once `api-tests/pom.xml` exists), then run
 `deploy-ec2.yml` against the app instance.
 
