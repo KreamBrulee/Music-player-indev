@@ -82,9 +82,11 @@ pipeline {
             }
             steps {
                 sshagent(credentials: ['ec2-deploy-key']) {
+                    // Jenkins runs inside the VPC, so it deploys over the app's
+                    // private IP (the -internal inventory) — no public round-trip.
                     sh '''
                         cd ansible
-                        ansible-playbook -i inventory-ec2.ini deploy-ec2.yml
+                        ansible-playbook -i inventory-ec2-internal.ini deploy-ec2.yml
                     '''
                 }
             }

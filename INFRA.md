@@ -38,11 +38,39 @@ ssh-add --apple-use-keychain ~/.ssh/id_ed25519   # macOS
 ssh-add -l                                        # confirm it's loaded
 ```
 
-1. **Instances** (already applied): `terraform/aws` and `terraform/jenkins`.
-   Each `terraform apply` needs `-var admin_cidr=<your-ip>/32`.
-2. **App:** `cd ansible && ansible-playbook -i inventory-ec2.ini deploy-ec2.yml`
-3. **Jenkins:** `ansible-playbook -i inventory-jenkins.ini jenkins.yml`
-4. **Monitoring:** `ansible-playbook -i inventory-ec2.ini -i inventory-jenkins.ini monitoring.yml`
+1. **Instances:** `terraform apply` in `terraform/aws` then `terraform/jenkins`.
+   Each needs `-var admin_cidr=<your-ip>/32` (get it with `curl checkip.amazonaws.com`).
+2. **Generate the inventories** from the Terraform outputs (never hand-edit them):
+   `./scripts/gen-inventory.sh`
+3. **App:** `cd ansible && ansible-playbook -i inventory-ec2.ini deploy-ec2.yml`
+4. **Jenkins:** `ansible-playbook -i inventory-jenkins.ini jenkins.yml`
+5. **Monitoring:** `ansible-playbook -i inventory-ec2.ini -i inventory-jenkins.ini monitoring.yml`
+
+Everything SSHes with your `~/.ssh/id_ed25519`, so load it into the agent once
+first:
+
+```bash
+ssh-add --apple-use-keychain ~/.ssh/id_ed25519   # macOS
+ssh-add -l                                        # confirm it's loaded
+```
+
+## Deploying to a different AWS account (reusing this repo)
+
+Nothing environment-specific is hand-written — IPs come from Terraform, and
+the rest are variables. To stand this up fresh in your own account:
+
+1. Have an SSH key at `~/.ssh/id_ed25519.pub` (or pass
+   `-var public_key_path=/path/to/your.pub`).
+2. `terraform apply` both stacks with your `-var admin_cidr=<your-ip>/32`
+   (and `-var region=<your-region>` if not eu-north-1).
+3. `./scripts/gen-inventory.sh` — rewrites the inventories with *your* instances' IPs.
+4. Run the playbooks (steps 3–5 above). For a fork, add
+   `-e repo_url=https://github.com/you/your-fork` to the app deploy.
+5. In Jenkins, create the `ec2-deploy-key` credential and the job (below), and
+   point a GitHub webhook at your Jenkins.
+
+No file needs a manual IP edit — `gen-inventory.sh` is the single source for
+host addresses, and the monitoring scrape targets come from Ansible facts.
 
 ## Manual steps (secrets — not in the repo)
 

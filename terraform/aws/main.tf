@@ -26,11 +26,11 @@ resource "aws_security_group" "app" {
   description = "SSH from admin only, app port public"
 
   ingress {
-    description = "SSH from admin and from the Jenkins host (for CI deploys)"
+    description = "SSH from admin (public) and from inside the VPC (Jenkins CI deploys over the private network)"
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
-    cidr_blocks = [var.admin_cidr, var.ci_cidr]
+    cidr_blocks = [var.admin_cidr, var.vpc_cidr]
   }
 
   ingress {
@@ -62,7 +62,7 @@ resource "aws_security_group" "app" {
     from_port   = 9100
     to_port     = 9100
     protocol    = "tcp"
-    cidr_blocks = [var.monitoring_cidr]
+    cidr_blocks = [var.vpc_cidr]
   }
 
   ingress {
@@ -70,7 +70,7 @@ resource "aws_security_group" "app" {
     from_port   = 8080
     to_port     = 8080
     protocol    = "tcp"
-    cidr_blocks = [var.monitoring_cidr]
+    cidr_blocks = [var.vpc_cidr]
   }
 
   egress {

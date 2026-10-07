@@ -5,10 +5,9 @@
 #
 #   ansible-playbook -i inventory-ec2.ini -i inventory-jenkins.ini monitoring.yml
 #
-# app_scrape_targets is the list of app private IPs Prometheus scrapes.
-# Default is the current app instance; override with --extra-vars if the app
-# IP changes or more instances are added:
-#   --extra-vars '{"app_scrape_targets":["172.31.43.12","172.31.x.y"]}'
+# Prometheus scrapes every host in the ec2_host group — their private IPs are
+# read from facts automatically (see app_scrape_targets below), so adding more
+# app instances to the inventory extends monitoring with no edits here.
 
 - name: Exporters on app hosts
   hosts: ec2_host
@@ -42,8 +41,13 @@
   vars:
     monitoring_dir: /opt/monitoring
     grafana_admin_password: admin
-    app_scrape_targets:
-      - 172.31.43.12
+    # Derived from the app hosts' own facts (gathered in the first play), so no
+    # IP is hardcoded. Each app host's private address is what Prometheus, which
+    # runs here inside the VPC, scrapes.
+    app_scrape_targets: >-
+      {{ groups['ec2_host']
+         | map('extract', hostvars, ['ansible_default_ipv4', 'address'])
+         | list }}
 
   tasks:
     - name: Create the monitoring dir tree

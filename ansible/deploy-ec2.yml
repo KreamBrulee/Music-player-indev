@@ -13,8 +13,9 @@
 
   vars:
     app_dir: /opt/music-player
-    repo_url: https://github.com/KreamBrulee/Music-player-indev
-    repo_branch: master
+    # Override for a fork: -e repo_url=https://github.com/you/your-fork
+    repo_url: "{{ repo_url | default('https://github.com/KreamBrulee/Music-player-indev') }}"
+    repo_branch: "{{ repo_branch | default('master') }}"
     deploy_user: ubuntu
 
   tasks:
