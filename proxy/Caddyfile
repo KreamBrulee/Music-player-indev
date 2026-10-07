@@ -1,0 +1,8 @@
+# Reverse proxy in front of the app. Listens on port 80 and forwards to the
+# music-player container on localhost:3000. HTTPS is terminated by Cloudflare
+# at the edge (orange-cloud proxy), so the origin only needs plain HTTP here.
+# Catch-all on :80 means no domain is hardcoded — the hostname lives only in
+# Cloudflare DNS.
+:80 {
+	reverse_proxy localhost:3000
+}

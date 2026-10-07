@@ -1,0 +1,46 @@
+---
+# Puts a Caddy reverse proxy on the app instance: port 80 -> the app on 3000.
+# HTTPS is handled by Cloudflare's edge, so the origin serves plain HTTP.
+#
+#   ansible-playbook -i inventory-ec2.ini proxy.yml
+#
+# Runs Caddy as a container (host networking so it binds :80 and can reach the
+# app's published :3000 on localhost). Security group already allows 80/443.
+
+- name: Reverse proxy for the app
+  hosts: ec2_host
+  become: true
+
+  vars:
+    caddy_dir: /opt/caddy
+
+  tasks:
+    - name: Create the Caddy config dir
+      ansible.builtin.file:
+        path: "{{ caddy_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Install the Caddyfile
+      ansible.builtin.copy:
+        src: ../proxy/Caddyfile
+        dest: "{{ caddy_dir }}/Caddyfile"
+        mode: "0644"
+      register: caddyfile
+
+    - name: Run Caddy (host network so it binds :80 and reaches localhost:3000)
+      ansible.builtin.command:
+        cmd: >
+          docker run -d --name caddy --restart unless-stopped
+          --network host
+          -v {{ caddy_dir }}/Caddyfile:/etc/caddy/Caddyfile:ro
+          caddy:2.8
+      register: caddy_run
+      changed_when: caddy_run.rc == 0
+      failed_when: caddy_run.rc != 0 and 'already in use' not in caddy_run.stderr
+
+    - name: Reload Caddy if the config changed (container already existed)
+      ansible.builtin.command:
+        cmd: docker exec caddy caddy reload --config /etc/caddy/Caddyfile
+      when: caddy_run.rc != 0 and caddyfile.changed
+      changed_when: true
