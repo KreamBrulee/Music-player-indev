@@ -116,6 +116,50 @@ latest code onto an always-on machine over SSH and runs the same Docker
 Compose setup there, for when you want this running somewhere other than
 your dev machine.
 
+## Cloud deployment (AWS + CI/CD + monitoring)
+
+The repo also provisions a full cloud stack: the app on an EC2 instance, a
+Jenkins server that builds/tests/deploys on every push, and Prometheus +
+Grafana monitoring — all defined as code (Terraform + Ansible), nothing
+hand-configured. Full detail and the manual steps (Jenkins credential,
+GitHub webhook) are in [INFRA.md](INFRA.md); the short version:
+
+**Prerequisites:** an AWS account with the CLI configured (`aws configure`),
+Terraform, Ansible, and an SSH key at `~/.ssh/id_ed25519`.
+
+```bash
+# 1. Load your SSH key into the agent (it's passphrase-protected)
+ssh-add ~/.ssh/id_ed25519
+
+# 2. Provision the two instances (app + Jenkins). Pass your own IP so only
+#    you can reach SSH and the admin UIs.
+MYIP=$(curl -s checkip.amazonaws.com)
+terraform -chdir=terraform/aws     apply -var admin_cidr=$MYIP/32
+terraform -chdir=terraform/jenkins apply -var admin_cidr=$MYIP/32
+
+# 3. Generate the Ansible inventories from the Terraform outputs
+#    (never hand-edit them)
+./scripts/gen-inventory.sh
+
+# 4. Configure the instances
+cd ansible
+ansible-playbook -i inventory-ec2.ini deploy-ec2.yml                       # app
+ansible-playbook -i inventory-jenkins.ini jenkins.yml                      # Jenkins
+ansible-playbook -i inventory-ec2.ini -i inventory-jenkins.ini monitoring.yml
+ansible-playbook -i inventory-ec2.ini proxy.yml                            # optional: Caddy on :80
+```
+
+After that, finish the Jenkins setup (deploy-key credential, the Pipeline
+job, and a GitHub webhook) as described in [INFRA.md](INFRA.md#manual-steps-secrets--not-in-the-repo).
+From then on, **a push to `master` builds, tests, and deploys automatically.**
+
+Everything is parameterized — deploying to a different AWS account or region
+means changing variables, not editing IPs by hand. See the "Deploying to a
+different AWS account" section in [INFRA.md](INFRA.md).
+
+Tear it all down with `terraform destroy` in `terraform/jenkins` and
+`terraform/aws`.
+
 ## Configuration
 
 All settings live in [config.json](config.json) (edit it directly — it's
@@ -142,7 +186,12 @@ music-player/
 ├── deploy_systemd.sh  install as a systemd service (Linux only)
 ├── Dockerfile          multi-stage container build
 ├── docker-compose.yml  container build + run, with songs/ mounted
-├── ansible/            deploy this to a remote/home host over SSH
+├── Jenkinsfile         CI/CD pipeline (build, test, deploy)
+├── terraform/          AWS provisioning (app + Jenkins instances) + local Docker
+├── ansible/            deploy, Jenkins setup, monitoring, reverse proxy
+├── monitoring/         Prometheus + Grafana stack
+├── scripts/            gen-inventory.sh (inventories from Terraform outputs)
+├── INFRA.md            full cloud/CI-CD/monitoring guide
 ├── CMakeLists.txt     build configuration
 ├── config.json         server settings (see Configuration below)
 ├── src/main.cpp       the server
